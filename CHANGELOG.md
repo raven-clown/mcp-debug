@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.4 (performance)
+
+- `stdout` from the wrapped server is now relayed with `.pipe()` instead of a manual `.write()` per chunk, so Node applies backpressure automatically. Previously a server that wrote to stdout faster than the downstream client consumed it could make mcp-debug's own memory usage grow unbounded.
+
 ## 1.6.3 (security)
 
 - `debug`/`info`/`warn`/`error` log data was written to the terminal and session file unredacted, even without `--verbose`. Fields that look like secrets (`token`, `apiKey`, `password`, `authorization`, ...) are now redacted the same way verbose protocol payloads already were. If you've used `mcp-stdio-debug` to log request data containing credentials, check `.mcp-debug/*.jsonl` files written by earlier versions and remove them.

@@ -215,10 +215,10 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
   const stdoutSplitter = new LineSplitter((line) => {
     writeProtocolMessages(parseIncoming(line, pending, flags.verbose), logStream, counters);
   });
-  child.stdout.on("data", (chunk: Buffer) => {
-    process.stdout.write(chunk);
-    stdoutSplitter.push(chunk);
-  });
+  // pipe (not manual .write()) so Node applies backpressure automatically
+  // if the downstream consumer reads slower than the server writes
+  child.stdout.pipe(process.stdout, { end: false });
+  child.stdout.on("data", (chunk: Buffer) => stdoutSplitter.push(chunk));
   child.stdout.on("close", () => stdoutSplitter.flush());
 
   const stderrSplitter = new LineSplitter((line) => handleDebugLine(line, logStream, flags.level));
