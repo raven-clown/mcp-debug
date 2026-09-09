@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.14
+
+- `mcp-debug doctor`'s command-on-PATH check spawned `where`/`which` as an external process with a timeout as a safety net against it hanging (1.6.8). That timeout turned out to be necessary but not sufficient: on Windows CI runners, `where` was sometimes still slow enough to legitimately exceed it, turning a valid command into a false "not found." Replaced the external process entirely with a native `PATH`/`PATHEXT` lookup, so the check is a synchronous filesystem read with no process-spawn or timing risk left at all.
+
 ## 1.6.13
 
 - Fixed multi-byte UTF-8 characters (Thai, CJK, emoji, ...) getting corrupted into `�` in debug logs and the protocol trace when a character landed across two separate stdout/stderr writes — a real risk for any server producing non-ASCII text, since Node delivers arbitrary chunk boundaries. Switched from raw `Buffer.toString()` to `StringDecoder`, which buffers incomplete byte sequences across chunks instead of prematurely replacing them. Verified across every possible split point of a mixed Thai/CJK/emoji string, and end-to-end with a server writing one byte at a time. `stdout` passthrough was never affected (bytes were always relayed untouched) — this only fixes what mcp-debug logs and displays itself.

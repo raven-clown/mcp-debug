@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   accessSync,
   closeSync,
@@ -21,6 +21,7 @@ import { LineSplitter } from "./line-splitter.js";
 import { createPendingState, parseIncoming, parseOutgoing, SLOW_THRESHOLD_MS, type ProtocolMessage } from "./protocol.js";
 import { redact } from "./redact.js";
 import { computeStats, type SessionEntry } from "./stats.js";
+import { findOnPath } from "./which.js";
 
 const COLOR = {
   reset: "\x1b[0m",
@@ -385,19 +386,8 @@ function doctor(target: string | undefined): void {
       const found = existsSync(target);
       checks.push({ name: `path "${target}" exists`, ok: found, detail: found ? target : "not found" });
     } else {
-      const finder = process.platform === "win32" ? "where" : "which";
-      // never let an external command hang doctor indefinitely
-      const result = spawnSync(finder, [target], { stdio: "pipe", timeout: 3000 });
-      const ok = result.status === 0;
-      checks.push({
-        name: `command "${target}" on PATH`,
-        ok,
-        detail: ok
-          ? result.stdout.toString().trim().split("\n")[0]
-          : (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT"
-            ? "timed out"
-            : "not found",
-      });
+      const found = findOnPath(target);
+      checks.push({ name: `command "${target}" on PATH`, ok: found !== null, detail: found ?? "not found" });
     }
   }
 
