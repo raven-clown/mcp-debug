@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.6
+
+- Fixed the logger (`debug`/`info`/`warn`/`error`) crashing the calling server on circular references or `BigInt` values in the logged data — a logging call must never throw. Circular references are now replaced with `"[Circular]"` and `BigInt`s are stringified; if serialization still somehow fails, a safe placeholder is logged instead of throwing. Also added the test coverage for the logger that was missing since 0.1.0.
+
 ## 1.6.5
 
 - Fixed `mcp-debug doctor` falsely reporting a valid command as "not found" when given as a relative or absolute path instead of a bare name (e.g. `./bin/server` or `/usr/local/bin/server`) — `where`/`which` only resolve bare command names against `PATH` and error out or give false negatives on an actual path. Paths are now checked directly for existence instead.
