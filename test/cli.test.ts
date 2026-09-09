@@ -294,6 +294,12 @@ describe("mcp-debug doctor", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("runtime:");
   });
+
+  test("does not emit ANSI color codes when not a TTY", async () => {
+    const result = await run(["doctor", "--", "node"]);
+    tempDirs.push(result.cwd);
+    expect(result.stdout).not.toContain("\x1b[");
+  });
 });
 
 describe("mcp-debug flags", () => {

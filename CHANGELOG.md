@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.1
+
+- Fixed `mcp-debug doctor` always emitting ANSI color codes, even when output isn't a real terminal (introduced in 1.5.0)
+
 ## 1.6.0
 
 - `mcp-debug replay --follow` keeps printing new lines as another run appends to the session file

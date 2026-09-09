@@ -369,6 +369,7 @@ function statsCmd(path: string | undefined): void {
 }
 
 function doctor(target: string | undefined): void {
+  useColor = !!process.stdout.isTTY;
   const checks: { name: string; ok: boolean; detail: string }[] = [];
 
   checks.push({ name: "runtime", ok: true, detail: `${process.platform}, node ${process.version}` });
