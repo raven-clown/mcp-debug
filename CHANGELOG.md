@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.7
+
+- Reordered the release workflow to create the GitHub release/tag before publishing to npm, not after. A GitHub release can be deleted and retried if something fails; an npm version, once published, can never be reused — so npm should be the step that fails last, not first.
+
 ## 1.6.6
 
 - Fixed the logger (`debug`/`info`/`warn`/`error`) crashing the calling server on circular references or `BigInt` values in the logged data — a logging call must never throw. Circular references are now replaced with `"[Circular]"` and `BigInt`s are stringified; if serialization still somehow fails, a safe placeholder is logged instead of throwing. Also added the test coverage for the logger that was missing since 0.1.0.
