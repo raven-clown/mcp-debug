@@ -3,6 +3,7 @@
 ## 1.6.13
 
 - Fixed multi-byte UTF-8 characters (Thai, CJK, emoji, ...) getting corrupted into `�` in debug logs and the protocol trace when a character landed across two separate stdout/stderr writes — a real risk for any server producing non-ASCII text, since Node delivers arbitrary chunk boundaries. Switched from raw `Buffer.toString()` to `StringDecoder`, which buffers incomplete byte sequences across chunks instead of prematurely replacing them. Verified across every possible split point of a mixed Thai/CJK/emoji string, and end-to-end with a server writing one byte at a time. `stdout` passthrough was never affected (bytes were always relayed untouched) — this only fixes what mcp-debug logs and displays itself.
+- The test suite's own process-output capture had the identical bug (naive `.toString()` per chunk), which made the new UTF-8 test itself flaky by OS pipe timing — it passed locally and failed on all three CI runners. Fixed by decoding accumulated raw buffers once at the end instead of per chunk.
 
 ## 1.6.12 (security)
 

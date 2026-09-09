@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 const CLI = join(import.meta.dir, "..", "src", "cli.ts");
 const FIXTURES = join(import.meta.dir, "fixtures");
@@ -18,12 +19,22 @@ function run(args: string[], input?: string, cwd?: string): Promise<RunResult> {
   const dir = cwd ?? mkdtempSync(join(tmpdir(), "mcp-debug-test-"));
   return new Promise((resolve, reject) => {
     const child = spawn("bun", [CLI, ...args], { cwd: dir });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (d) => (stdout += d.toString()));
-    child.stderr.on("data", (d) => (stderr += d.toString()));
+    // accumulate raw bytes and decode once at the end - decoding each
+    // chunk with .toString() individually can split a multi-byte UTF-8
+    // character across two chunks and corrupt it
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    child.stdout.on("data", (d) => stdoutChunks.push(d));
+    child.stderr.on("data", (d) => stderrChunks.push(d));
     child.on("error", reject);
-    child.on("close", (code) => resolve({ stdout, stderr, code, cwd: dir }));
+    child.on("close", (code) =>
+      resolve({
+        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+        stderr: Buffer.concat(stderrChunks).toString("utf8"),
+        code,
+        cwd: dir,
+      }),
+    );
     if (input !== undefined) child.stdin.write(input);
     child.stdin.end();
   });
@@ -244,7 +255,8 @@ describe("mcp-debug replay", () => {
 
     const child = spawn("bun", [CLI, "replay", "--follow"], { cwd });
     let stdout = "";
-    child.stdout.on("data", (d) => (stdout += d.toString()));
+    const decoder = new StringDecoder("utf8");
+    child.stdout.on("data", (d) => (stdout += decoder.write(d)));
 
     await new Promise((r) => setTimeout(r, 500));
     expect(stdout).toContain("first");
@@ -277,7 +289,8 @@ describe("mcp-debug replay", () => {
 
     const child = spawn("bun", [CLI, "replay", "--follow"], { cwd });
     let stdout = "";
-    child.stdout.on("data", (d) => (stdout += d.toString()));
+    const decoder = new StringDecoder("utf8");
+    child.stdout.on("data", (d) => (stdout += decoder.write(d)));
 
     await new Promise((r) => setTimeout(r, 500));
     expect(stdout).toContain("a longer first line");
