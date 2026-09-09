@@ -383,11 +383,17 @@ function doctor(target: string | undefined): void {
       checks.push({ name: `path "${target}" exists`, ok: found, detail: found ? target : "not found" });
     } else {
       const finder = process.platform === "win32" ? "where" : "which";
-      const result = spawnSync(finder, [target], { stdio: "pipe" });
+      // never let an external command hang doctor indefinitely
+      const result = spawnSync(finder, [target], { stdio: "pipe", timeout: 3000 });
+      const ok = result.status === 0;
       checks.push({
         name: `command "${target}" on PATH`,
-        ok: result.status === 0,
-        detail: result.status === 0 ? result.stdout.toString().trim().split("\n")[0] : "not found",
+        ok,
+        detail: ok
+          ? result.stdout.toString().trim().split("\n")[0]
+          : (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT"
+            ? "timed out"
+            : "not found",
       });
     }
   }

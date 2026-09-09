@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.8
+
+- Fixed `mcp-debug doctor` occasionally hanging indefinitely on Windows when checking whether a command is on `PATH` (seen as a CI timeout on `windows-latest`). `where`/`which` now run with a 3-second timeout instead of none.
+
 ## 1.6.7
 
 - Reordered the release workflow to create the GitHub release/tag before publishing to npm, not after. A GitHub release can be deleted and retried if something fails; an npm version, once published, can never be reused — so npm should be the step that fails last, not first.

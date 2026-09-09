@@ -285,14 +285,18 @@ describe("mcp-debug stats", () => {
 });
 
 describe("mcp-debug doctor", () => {
-  test("passes when the target command exists", async () => {
-    const result = await run(["doctor", "--", "node"]);
-    tempDirs.push(result.cwd);
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain("runtime:");
-    expect(result.stdout).toContain('command "node" on PATH');
-    expect(result.stdout).toContain("current directory writable");
-  });
+  test(
+    "passes when the target command exists",
+    async () => {
+      const result = await run(["doctor", "--", "node"]);
+      tempDirs.push(result.cwd);
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("runtime:");
+      expect(result.stdout).toContain('command "node" on PATH');
+      expect(result.stdout).toContain("current directory writable");
+    },
+    10000,
+  );
 
   test("fails when the target command is missing", async () => {
     const result = await run(["doctor", "--", "definitely-not-a-real-command-xyz"]);
