@@ -2,3 +2,4 @@ node_modules
 dist
 .mcp-debug
 *.log
+package-lock.json

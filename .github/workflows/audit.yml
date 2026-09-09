@@ -1,0 +1,21 @@
+name: Dependency Audit
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      # npm audit needs an npm-format lockfile; the project uses bun.lock,
+      # so generate a throwaway package-lock.json just for this check
+      - run: npm i --package-lock-only
+      - run: npm audit --audit-level=moderate
