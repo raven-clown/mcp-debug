@@ -46,13 +46,25 @@ info("server.start", { pid: process.pid });
 debug("request.received", { method: "ping" });
 ```
 
-Each run writes a session file to `.mcp-debug/session-<time>.jsonl`
-with every log line and protocol message, in order. Each response is
-tagged with how long the server took to answer it:
+Each request and response is traced with a direction arrow, and each
+response is tagged with how long the server took to answer it. Slow
+responses (over 500ms) and JSON-RPC errors are highlighted in red;
+a response with no matching request, a duplicate request id, or a
+malformed message is flagged as an anomaly in yellow:
 
 ```
-2026-09-09T12:47:59.641Z [rpc] id=1 (57ms)
+[rpc] → ping id=1
+[rpc] ← ping id=1 (55ms)
 ```
+
+A one-line summary prints when the server exits:
+
+```
+mcp-debug summary: 1 requests, 1 responses, avg 55ms, slowest 55ms
+```
+
+Each run writes a session file to `.mcp-debug/session-<time>.jsonl`
+with every log line and protocol message, in order.
 
 Replay a saved session later — defaults to the most recent one:
 

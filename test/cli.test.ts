@@ -85,6 +85,21 @@ describe("mcp-debug run", () => {
     expect(result.stderr).toMatch(/id=1 \(\d+ms\)/);
   });
 
+  test("flags a JSON-RPC error response", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "fail" }) + "\n";
+    const result = await run(["run", "--", "node", join(FIXTURES, "error-server.js")], request);
+    tempDirs.push(result.cwd);
+    expect(result.stderr).toContain("error: boom");
+  });
+
+  test("prints an end-of-run summary", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const result = await run(["run", "--", "node", join(FIXTURES, "echo-server.js")], request);
+    tempDirs.push(result.cwd);
+    expect(result.stderr).toContain("mcp-debug summary:");
+    expect(result.stderr).toContain("1 requests, 1 responses");
+  });
+
   test("exits with the wrapped process's exit code", async () => {
     const result = await run(["run", "--", "node", join(FIXTURES, "exit-with-code.js"), "3"]);
     tempDirs.push(result.cwd);

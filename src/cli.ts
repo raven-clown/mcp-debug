@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { LineSplitter } from "./line-splitter.js";
+import { parseIncoming, parseOutgoing, SLOW_THRESHOLD_MS, type PendingEntry, type ProtocolMessage } from "./protocol.js";
 
 const COLOR = {
   reset: "\x1b[0m",
@@ -18,6 +19,62 @@ const COLOR = {
   yellow: "\x1b[33m",
   red: "\x1b[31m",
 };
+
+function colorForProtocol(msg: ProtocolMessage): string {
+  if (msg.direction === "anomaly") return COLOR.yellow;
+  if (msg.direction === "response" && msg.isError) return COLOR.red;
+  if (msg.latencyMs !== undefined && msg.latencyMs > SLOW_THRESHOLD_MS) return COLOR.red;
+  return COLOR.cyan;
+}
+
+interface RunCounters {
+  requests: number;
+  responses: number;
+  notifications: number;
+  errors: number;
+  anomalies: number;
+  latencies: number[];
+}
+
+function writeProtocolMessages(messages: ProtocolMessage[], logStream: WriteStream, counters: RunCounters): void {
+  for (const msg of messages) {
+    if (msg.direction === "request") counters.requests++;
+    if (msg.direction === "notification") counters.notifications++;
+    if (msg.direction === "anomaly") counters.anomalies++;
+    if (msg.direction === "response") {
+      counters.responses++;
+      if (msg.isError) counters.errors++;
+      if (msg.latencyMs !== undefined) counters.latencies.push(msg.latencyMs);
+    }
+
+    const time = new Date().toISOString();
+    process.stderr.write(`${colorForProtocol(msg)}${time} [rpc]${COLOR.reset} ${msg.summary}\n`);
+    logStream.write(
+      JSON.stringify({
+        time,
+        channel: "protocol",
+        direction: msg.direction,
+        method: msg.method,
+        id: msg.id,
+        latencyMs: msg.latencyMs,
+        isError: msg.isError,
+        text: msg.summary,
+      }) + "\n",
+    );
+  }
+}
+
+function printSummary(counters: RunCounters): void {
+  const parts = [`${counters.requests} requests`, `${counters.responses} responses`];
+  if (counters.errors > 0) parts.push(`${counters.errors} errors`);
+  if (counters.anomalies > 0) parts.push(`${counters.anomalies} anomalies`);
+  if (counters.latencies.length > 0) {
+    const avg = Math.round(counters.latencies.reduce((a, b) => a + b, 0) / counters.latencies.length);
+    const max = Math.max(...counters.latencies);
+    parts.push(`avg ${avg}ms`, `slowest ${max}ms`);
+  }
+  process.stderr.write(`${COLOR.gray}mcp-debug summary:${COLOR.reset} ${parts.join(", ")}\n`);
+}
 
 function readVersion(): string {
   const pkgPath = new URL("../package.json", import.meta.url);
@@ -36,43 +93,6 @@ function printUsage(): void {
       "",
     ].join("\n"),
   );
-}
-
-// tracks in-flight client -> server requests by id so a matching response
-// on stdout can report round-trip latency
-function handleClientLine(line: string, pending: Map<string, number>): void {
-  try {
-    const msg = JSON.parse(line);
-    if (msg && typeof msg === "object" && msg.method && msg.id !== undefined) {
-      pending.set(String(msg.id), Date.now());
-    }
-  } catch {
-    // not JSON, nothing to track
-  }
-}
-
-function handleProtocolLine(line: string, logStream: WriteStream, pending: Map<string, number>): void {
-  let summary: string;
-  try {
-    const msg = JSON.parse(line);
-    if (!msg || typeof msg !== "object" || !("jsonrpc" in msg)) return;
-    const parts = [msg.method, msg.id !== undefined ? `id=${msg.id}` : null].filter(Boolean);
-    summary = parts.join(" ") || "(response)";
-
-    if (msg.id !== undefined && !msg.method) {
-      const key = String(msg.id);
-      const start = pending.get(key);
-      if (start !== undefined) {
-        summary += ` (${Date.now() - start}ms)`;
-        pending.delete(key);
-      }
-    }
-  } catch {
-    return;
-  }
-  const time = new Date().toISOString();
-  process.stderr.write(`${COLOR.cyan}${time} [rpc]${COLOR.reset} ${summary}\n`);
-  logStream.write(JSON.stringify({ time, channel: "protocol", text: summary }) + "\n");
 }
 
 function handleDebugLine(line: string, logStream: WriteStream): void {
@@ -109,12 +129,25 @@ function run(target: string, targetArgs: string[]): void {
     shell: process.platform === "win32",
   });
 
-  const pending = new Map<string, number>();
-  const stdinSplitter = new LineSplitter((line) => handleClientLine(line, pending));
+  const pending = new Map<string, PendingEntry>();
+  const counters: RunCounters = {
+    requests: 0,
+    responses: 0,
+    notifications: 0,
+    errors: 0,
+    anomalies: 0,
+    latencies: [],
+  };
+
+  const stdinSplitter = new LineSplitter((line) => {
+    writeProtocolMessages(parseOutgoing(line, pending, false), logStream, counters);
+  });
   process.stdin.on("data", (chunk: Buffer) => stdinSplitter.push(chunk));
   process.stdin.pipe(child.stdin);
 
-  const stdoutSplitter = new LineSplitter((line) => handleProtocolLine(line, logStream, pending));
+  const stdoutSplitter = new LineSplitter((line) => {
+    writeProtocolMessages(parseIncoming(line, pending, false), logStream, counters);
+  });
   child.stdout.on("data", (chunk: Buffer) => {
     process.stdout.write(chunk);
     stdoutSplitter.push(chunk);
@@ -150,6 +183,7 @@ function run(target: string, targetArgs: string[]): void {
   // it's safe to end the log stream without a "write after end" race
   child.on("close", (code, signal) => {
     process.exitCode = code ?? (signal ? 1 : 0);
+    printSummary(counters);
     logStream.end();
   });
 }
@@ -180,7 +214,15 @@ function replay(path: string | undefined): void {
 
   for (const line of content.split("\n")) {
     if (!line.trim()) continue;
-    let entry: { time: string; channel: string; text: string; level?: string };
+    let entry: {
+      time: string;
+      channel: string;
+      text: string;
+      level?: string;
+      direction?: string;
+      latencyMs?: number;
+      isError?: boolean;
+    };
     try {
       entry = JSON.parse(line);
     } catch {
@@ -188,7 +230,13 @@ function replay(path: string | undefined): void {
     }
 
     if (entry.channel === "protocol") {
-      process.stdout.write(`${COLOR.cyan}${entry.time} [rpc]${COLOR.reset} ${entry.text}\n`);
+      const color =
+        entry.direction === "anomaly"
+          ? COLOR.yellow
+          : entry.isError || (entry.latencyMs !== undefined && entry.latencyMs > SLOW_THRESHOLD_MS)
+            ? COLOR.red
+            : COLOR.cyan;
+      process.stdout.write(`${color}${entry.time} [rpc]${COLOR.reset} ${entry.text}\n`);
     } else {
       const color = entry.level === "error" ? COLOR.red : entry.level === "warn" ? COLOR.yellow : COLOR.gray;
       process.stdout.write(`${color}${entry.time} [${entry.level}]${COLOR.reset} ${entry.text}\n`);

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0
+
+- Requests are now traced too, not just responses (`→ ping id=1` / `← ping id=1 (55ms)`)
+- Slow responses (over 500ms) and JSON-RPC error responses are highlighted in red
+- Protocol anomalies are flagged: duplicate request ids, responses with no matching request, malformed messages
+- JSON-RPC batch requests/responses are now traced (previously silently skipped)
+- A one-line summary prints when the wrapped server exits
+- `replay` highlights the same slow/error/anomaly cases as a live run
+
 ## 1.1.0
 
 - Responses now report round-trip latency (`id=1 (57ms)`)
