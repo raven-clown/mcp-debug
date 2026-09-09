@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0
+
+- `mcp-debug doctor -- <command>` checks the runtime, whether the target command resolves on `PATH`, and whether the current directory is writable
+
 ## 1.4.0
 
 - `mcp-debug stats [file]` summarizes a saved session: request/response/error counts, avg and p95 latency, slowest call, and a per-method breakdown

@@ -98,6 +98,21 @@ mcp-debug run --level=warn -- node server.js    # only show warn/error debug log
 mcp-debug run --no-color -- node server.js      # disable ANSI colors
 ```
 
+### Doctor
+
+Sanity-check the environment before you spend time debugging the
+wrong thing — is the command on `PATH`, is the current directory
+writable:
+
+```bash
+mcp-debug doctor -- node server.js
+```
+```
+✓ runtime: linux, node v22.15.0
+✓ command "node" on PATH: /usr/bin/node
+✓ current directory writable: /home/you/project
+```
+
 Colors are on automatically in a real terminal and off when piped to
 a file or another process. `--verbose` redacts fields that look like
 secrets (`token`, `apiKey`, `password`, `authorization`, ...) before

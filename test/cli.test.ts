@@ -219,6 +219,31 @@ describe("mcp-debug stats", () => {
   });
 });
 
+describe("mcp-debug doctor", () => {
+  test("passes when the target command exists", async () => {
+    const result = await run(["doctor", "--", "node"]);
+    tempDirs.push(result.cwd);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("runtime:");
+    expect(result.stdout).toContain('command "node" on PATH');
+    expect(result.stdout).toContain("current directory writable");
+  });
+
+  test("fails when the target command is missing", async () => {
+    const result = await run(["doctor", "--", "definitely-not-a-real-command-xyz"]);
+    tempDirs.push(result.cwd);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("not found");
+  });
+
+  test("works without a target command", async () => {
+    const result = await run(["doctor"]);
+    tempDirs.push(result.cwd);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("runtime:");
+  });
+});
+
 describe("mcp-debug flags", () => {
   test("--version prints the package version", async () => {
     const pkg = JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8"));

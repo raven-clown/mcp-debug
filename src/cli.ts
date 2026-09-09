@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
+  accessSync,
+  constants,
   createWriteStream,
   existsSync,
   mkdirSync,
@@ -19,6 +21,7 @@ const COLOR = {
   gray: "\x1b[90m",
   yellow: "\x1b[33m",
   red: "\x1b[31m",
+  green: "\x1b[32m",
 };
 
 const LEVEL_ORDER = ["debug", "info", "warn", "error"];
@@ -105,6 +108,7 @@ function printUsage(): void {
       "  mcp-debug run [flags] -- node server.js   wrap a stdio MCP server",
       "  mcp-debug replay [--no-color] [file]      pretty-print a saved session (defaults to the latest)",
       "  mcp-debug stats [file]                    summarize a saved session (defaults to the latest)",
+      "  mcp-debug doctor -- <command>              sanity-check the environment and command",
       "  mcp-debug --version                       print the installed version",
       "  mcp-debug --help                          show this message",
       "",
@@ -326,6 +330,37 @@ function statsCmd(path: string | undefined): void {
   }
 }
 
+function doctor(target: string | undefined): void {
+  const checks: { name: string; ok: boolean; detail: string }[] = [];
+
+  checks.push({ name: "runtime", ok: true, detail: `${process.platform}, node ${process.version}` });
+
+  if (target) {
+    const finder = process.platform === "win32" ? "where" : "which";
+    const result = spawnSync(finder, [target], { stdio: "pipe" });
+    checks.push({
+      name: `command "${target}" on PATH`,
+      ok: result.status === 0,
+      detail: result.status === 0 ? result.stdout.toString().trim().split("\n")[0] : "not found",
+    });
+  }
+
+  try {
+    accessSync(process.cwd(), constants.W_OK);
+    checks.push({ name: "current directory writable", ok: true, detail: process.cwd() });
+  } catch {
+    checks.push({ name: "current directory writable", ok: false, detail: process.cwd() });
+  }
+
+  let allOk = true;
+  for (const c of checks) {
+    allOk = allOk && c.ok;
+    const mark = c.ok ? paint(COLOR.green, "✓") : paint(COLOR.red, "✗");
+    process.stdout.write(`${mark} ${c.name}: ${c.detail}\n`);
+  }
+  process.exitCode = allOk ? 0 : 1;
+}
+
 function main(): void {
   const args = process.argv.slice(2);
 
@@ -349,6 +384,13 @@ function main(): void {
 
   if (args[0] === "stats") {
     statsCmd(args[1]);
+    return;
+  }
+
+  if (args[0] === "doctor") {
+    const sepIndex = args.indexOf("--");
+    const target = sepIndex !== -1 ? args[sepIndex + 1] : undefined;
+    doctor(target);
     return;
   }
 
