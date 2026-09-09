@@ -47,7 +47,19 @@ debug("request.received", { method: "ping" });
 ```
 
 Each run writes a session file to `.mcp-debug/session-<time>.jsonl`
-with every log line and protocol message, in order, for later replay.
+with every log line and protocol message, in order. Each response is
+tagged with how long the server took to answer it:
+
+```
+2026-09-09T12:47:59.641Z [rpc] id=1 (57ms)
+```
+
+Replay a saved session later — defaults to the most recent one:
+
+```bash
+mcp-debug replay
+mcp-debug replay .mcp-debug/session-1234567890.jsonl
+```
 
 ```bash
 mcp-debug --version

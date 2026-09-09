@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { createWriteStream, mkdirSync, readFileSync, type WriteStream } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  type WriteStream,
+} from "node:fs";
 import { join } from "node:path";
 import { LineSplitter } from "./line-splitter.js";
 
@@ -23,6 +30,7 @@ function printUsage(): void {
       "Usage: mcp-debug run -- <command> [args...]",
       "",
       "  mcp-debug run -- node server.js   wrap a stdio MCP server",
+      "  mcp-debug replay [session-file]   pretty-print a saved session (defaults to the latest)",
       "  mcp-debug --version               print the installed version",
       "  mcp-debug --help                  show this message",
       "",
@@ -30,13 +38,35 @@ function printUsage(): void {
   );
 }
 
-function handleProtocolLine(line: string, logStream: WriteStream): void {
+// tracks in-flight client -> server requests by id so a matching response
+// on stdout can report round-trip latency
+function handleClientLine(line: string, pending: Map<string, number>): void {
+  try {
+    const msg = JSON.parse(line);
+    if (msg && typeof msg === "object" && msg.method && msg.id !== undefined) {
+      pending.set(String(msg.id), Date.now());
+    }
+  } catch {
+    // not JSON, nothing to track
+  }
+}
+
+function handleProtocolLine(line: string, logStream: WriteStream, pending: Map<string, number>): void {
   let summary: string;
   try {
     const msg = JSON.parse(line);
     if (!msg || typeof msg !== "object" || !("jsonrpc" in msg)) return;
     const parts = [msg.method, msg.id !== undefined ? `id=${msg.id}` : null].filter(Boolean);
     summary = parts.join(" ") || "(response)";
+
+    if (msg.id !== undefined && !msg.method) {
+      const key = String(msg.id);
+      const start = pending.get(key);
+      if (start !== undefined) {
+        summary += ` (${Date.now() - start}ms)`;
+        pending.delete(key);
+      }
+    }
   } catch {
     return;
   }
@@ -79,9 +109,12 @@ function run(target: string, targetArgs: string[]): void {
     shell: process.platform === "win32",
   });
 
+  const pending = new Map<string, number>();
+  const stdinSplitter = new LineSplitter((line) => handleClientLine(line, pending));
+  process.stdin.on("data", (chunk: Buffer) => stdinSplitter.push(chunk));
   process.stdin.pipe(child.stdin);
 
-  const stdoutSplitter = new LineSplitter((line) => handleProtocolLine(line, logStream));
+  const stdoutSplitter = new LineSplitter((line) => handleProtocolLine(line, logStream, pending));
   child.stdout.on("data", (chunk: Buffer) => {
     process.stdout.write(chunk);
     stdoutSplitter.push(chunk);
@@ -121,6 +154,48 @@ function run(target: string, targetArgs: string[]): void {
   });
 }
 
+function findLatestSession(): string | undefined {
+  const dir = join(process.cwd(), ".mcp-debug");
+  if (!existsSync(dir)) return undefined;
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".jsonl"))
+    .sort();
+  return files.length > 0 ? join(dir, files[files.length - 1]) : undefined;
+}
+
+function replay(path: string | undefined): void {
+  const sessionPath = path ?? findLatestSession();
+  if (!sessionPath) {
+    process.stderr.write("mcp-debug: no session file found (pass a path, or run in a directory with .mcp-debug/)\n");
+    process.exit(1);
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(sessionPath, "utf8");
+  } catch (err) {
+    process.stderr.write(`mcp-debug: could not read "${sessionPath}": ${(err as Error).message}\n`);
+    process.exit(1);
+  }
+
+  for (const line of content.split("\n")) {
+    if (!line.trim()) continue;
+    let entry: { time: string; channel: string; text: string; level?: string };
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    if (entry.channel === "protocol") {
+      process.stdout.write(`${COLOR.cyan}${entry.time} [rpc]${COLOR.reset} ${entry.text}\n`);
+    } else {
+      const color = entry.level === "error" ? COLOR.red : entry.level === "warn" ? COLOR.yellow : COLOR.gray;
+      process.stdout.write(`${color}${entry.time} [${entry.level}]${COLOR.reset} ${entry.text}\n`);
+    }
+  }
+}
+
 function main(): void {
   const args = process.argv.slice(2);
 
@@ -131,6 +206,11 @@ function main(): void {
 
   if (args[0] === "--help" || args[0] === "-h") {
     printUsage();
+    return;
+  }
+
+  if (args[0] === "replay") {
+    replay(args[1]);
     return;
   }
 

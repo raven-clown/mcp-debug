@@ -14,16 +14,16 @@ interface RunResult {
   cwd: string;
 }
 
-function run(args: string[], input?: string): Promise<RunResult> {
-  const cwd = mkdtempSync(join(tmpdir(), "mcp-debug-test-"));
+function run(args: string[], input?: string, cwd?: string): Promise<RunResult> {
+  const dir = cwd ?? mkdtempSync(join(tmpdir(), "mcp-debug-test-"));
   return new Promise((resolve, reject) => {
-    const child = spawn("bun", [CLI, ...args], { cwd });
+    const child = spawn("bun", [CLI, ...args], { cwd: dir });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d.toString()));
     child.stderr.on("data", (d) => (stderr += d.toString()));
     child.on("error", reject);
-    child.on("close", (code) => resolve({ stdout, stderr, code, cwd }));
+    child.on("close", (code) => resolve({ stdout, stderr, code, cwd: dir }));
     if (input !== undefined) child.stdin.write(input);
     child.stdin.end();
   });
@@ -77,6 +77,14 @@ describe("mcp-debug run", () => {
     expect(entries.some((e) => e.channel === "log" && e.text.includes("server.start"))).toBe(true);
   });
 
+  test("reports round-trip latency for a request/response pair", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const result = await run(["run", "--", "node", join(FIXTURES, "echo-server.js")], request);
+    tempDirs.push(result.cwd);
+    expect(result.stderr).toContain("[rpc]");
+    expect(result.stderr).toMatch(/id=1 \(\d+ms\)/);
+  });
+
   test("exits with the wrapped process's exit code", async () => {
     const result = await run(["run", "--", "node", join(FIXTURES, "exit-with-code.js"), "3"]);
     tempDirs.push(result.cwd);
@@ -93,6 +101,47 @@ describe("mcp-debug run", () => {
       // Node raising ENOENT
       expect(result.stderr).toContain("failed to start");
     }
+  });
+});
+
+describe("mcp-debug replay", () => {
+  test("reproduces the log entries from a saved session", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const recorded = await run(["run", "--", "node", join(FIXTURES, "echo-server.js")], request);
+    tempDirs.push(recorded.cwd);
+
+    const replayed = await run(["replay"], undefined, recorded.cwd);
+    expect(replayed.code).toBe(0);
+    expect(replayed.stdout).toContain("server.start");
+    expect(replayed.stdout).toContain("request.received");
+    expect(replayed.stdout).toContain("[rpc]");
+    expect(replayed.stdout).toContain("id=1");
+  });
+
+  test("accepts an explicit session file path", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const recorded = await run(["run", "--", "node", join(FIXTURES, "echo-server.js")], request);
+    tempDirs.push(recorded.cwd);
+
+    const sessionDir = join(recorded.cwd, ".mcp-debug");
+    const file = readdirSync(sessionDir)[0];
+    const replayed = await run(["replay", join(sessionDir, file)], undefined, recorded.cwd);
+    expect(replayed.code).toBe(0);
+    expect(replayed.stdout).toContain("server.start");
+  });
+
+  test("fails clearly when no session exists", async () => {
+    const result = await run(["replay"]);
+    tempDirs.push(result.cwd);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("no session file found");
+  });
+
+  test("fails clearly for a missing file path", async () => {
+    const result = await run(["replay", "/no/such/file.jsonl"]);
+    tempDirs.push(result.cwd);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("could not read");
   });
 });
 

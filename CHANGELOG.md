@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0
+
+- Responses now report round-trip latency (`id=1 (57ms)`)
+- `mcp-debug replay [session-file]` pretty-prints a saved session, defaulting to the latest
+
 ## 1.0.0
 
 - `--version` and `--help` flags
