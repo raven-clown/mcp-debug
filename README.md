@@ -123,10 +123,7 @@ mcp-debug doctor -- node server.js
 ```
 
 Colors are on automatically in a real terminal and off when piped to
-a file or another process. `--verbose` redacts fields that look like
-secrets (`token`, `apiKey`, `password`, `authorization`, ...) before
-printing or logging them — the raw data passed through `stdout` is
-never touched.
+a file or another process.
 
 ```bash
 mcp-debug --version
