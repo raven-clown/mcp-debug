@@ -24,6 +24,12 @@ class LineSplitter {
       if (line.length > 0) this.onLine(line);
     }
   }
+
+  flush(): void {
+    const rest = this.buf.replace(/\r$/, "");
+    this.buf = "";
+    if (rest.length > 0) this.onLine(rest);
+  }
 }
 
 function printUsage(): void {
@@ -70,7 +76,10 @@ function run(target: string, targetArgs: string[]): void {
   mkdirSync(sessionDir, { recursive: true });
   const logPath = join(sessionDir, `session-${Date.now()}.jsonl`);
 
-  const child = spawn(target, targetArgs, { stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(target, targetArgs, {
+    stdio: ["pipe", "pipe", "pipe"],
+    shell: process.platform === "win32",
+  });
 
   process.stdin.pipe(child.stdin);
 
@@ -79,17 +88,23 @@ function run(target: string, targetArgs: string[]): void {
     process.stdout.write(chunk);
     stdoutSplitter.push(chunk);
   });
+  child.stdout.on("close", () => stdoutSplitter.flush());
 
   const stderrSplitter = new LineSplitter((line) => handleDebugLine(line, logPath));
   child.stderr.on("data", (chunk: Buffer) => stderrSplitter.push(chunk));
+  child.stderr.on("close", () => stderrSplitter.flush());
+
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => child.kill(sig));
+  }
 
   child.on("error", (err) => {
     process.stderr.write(`mcp-debug: failed to start "${target}": ${err.message}\n`);
-    process.exit(1);
+    process.exitCode = 1;
   });
 
   child.on("exit", (code, signal) => {
-    process.exit(code ?? (signal ? 1 : 0));
+    process.exitCode = code ?? (signal ? 1 : 0);
   });
 }
 
