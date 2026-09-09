@@ -376,13 +376,20 @@ function doctor(target: string | undefined): void {
   checks.push({ name: "runtime", ok: true, detail: `${process.platform}, node ${process.version}` });
 
   if (target) {
-    const finder = process.platform === "win32" ? "where" : "which";
-    const result = spawnSync(finder, [target], { stdio: "pipe" });
-    checks.push({
-      name: `command "${target}" on PATH`,
-      ok: result.status === 0,
-      detail: result.status === 0 ? result.stdout.toString().trim().split("\n")[0] : "not found",
-    });
+    if (target.includes("/") || target.includes("\\")) {
+      // a path, not a bare command name: "where"/"which" only search PATH
+      // by name and error out or give false negatives on an actual path
+      const found = existsSync(target);
+      checks.push({ name: `path "${target}" exists`, ok: found, detail: found ? target : "not found" });
+    } else {
+      const finder = process.platform === "win32" ? "where" : "which";
+      const result = spawnSync(finder, [target], { stdio: "pipe" });
+      checks.push({
+        name: `command "${target}" on PATH`,
+        ok: result.status === 0,
+        detail: result.status === 0 ? result.stdout.toString().trim().split("\n")[0] : "not found",
+      });
+    }
   }
 
   try {

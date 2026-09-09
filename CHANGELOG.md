@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.5
+
+- Fixed `mcp-debug doctor` falsely reporting a valid command as "not found" when given as a relative or absolute path instead of a bare name (e.g. `./bin/server` or `/usr/local/bin/server`) — `where`/`which` only resolve bare command names against `PATH` and error out or give false negatives on an actual path. Paths are now checked directly for existence instead.
+
 ## 1.6.4 (performance)
 
 - `stdout` from the wrapped server is now relayed with `.pipe()` instead of a manual `.write()` per chunk, so Node applies backpressure automatically. Previously a server that wrote to stdout faster than the downstream client consumed it could make mcp-debug's own memory usage grow unbounded.

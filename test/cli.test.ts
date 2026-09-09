@@ -313,6 +313,20 @@ describe("mcp-debug doctor", () => {
     tempDirs.push(result.cwd);
     expect(result.stdout).not.toContain("\x1b[");
   });
+
+  test("checks a path target by existence, not PATH lookup", async () => {
+    const result = await run(["doctor", "--", CLI]);
+    tempDirs.push(result.cwd);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("exists");
+  });
+
+  test("fails clearly for a path target that does not exist", async () => {
+    const result = await run(["doctor", "--", "./no/such/path.js"]);
+    tempDirs.push(result.cwd);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("not found");
+  });
 });
 
 describe("mcp-debug flags", () => {
