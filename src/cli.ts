@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
 
 const COLOR = {
@@ -36,7 +36,7 @@ function printUsage(): void {
   process.stderr.write("Usage: mcp-debug run -- <command> [args...]\n");
 }
 
-function handleProtocolLine(line: string, logPath: string): void {
+function handleProtocolLine(line: string, logStream: WriteStream): void {
   let summary: string;
   try {
     const msg = JSON.parse(line);
@@ -48,10 +48,10 @@ function handleProtocolLine(line: string, logPath: string): void {
   }
   const time = new Date().toISOString();
   process.stderr.write(`${COLOR.cyan}${time} [rpc]${COLOR.reset} ${summary}\n`);
-  appendFileSync(logPath, JSON.stringify({ time, channel: "protocol", text: summary }) + "\n");
+  logStream.write(JSON.stringify({ time, channel: "protocol", text: summary }) + "\n");
 }
 
-function handleDebugLine(line: string, logPath: string): void {
+function handleDebugLine(line: string, logStream: WriteStream): void {
   let text = line;
   let level = "log";
   try {
@@ -68,13 +68,17 @@ function handleDebugLine(line: string, logPath: string): void {
   const color = level === "error" ? COLOR.red : level === "warn" ? COLOR.yellow : COLOR.gray;
   const time = new Date().toISOString();
   process.stderr.write(`${color}${time} [${level}]${COLOR.reset} ${text}\n`);
-  appendFileSync(logPath, JSON.stringify({ time, channel: "log", level, text }) + "\n");
+  logStream.write(JSON.stringify({ time, channel: "log", level, text }) + "\n");
 }
 
 function run(target: string, targetArgs: string[]): void {
   const sessionDir = join(process.cwd(), ".mcp-debug");
   mkdirSync(sessionDir, { recursive: true });
   const logPath = join(sessionDir, `session-${Date.now()}.jsonl`);
+  const logStream = createWriteStream(logPath, { flags: "a" });
+  logStream.on("error", (err) => {
+    process.stderr.write(`mcp-debug: log file write failed: ${err.message}\n`);
+  });
 
   const child = spawn(target, targetArgs, {
     stdio: ["pipe", "pipe", "pipe"],
@@ -83,14 +87,14 @@ function run(target: string, targetArgs: string[]): void {
 
   process.stdin.pipe(child.stdin);
 
-  const stdoutSplitter = new LineSplitter((line) => handleProtocolLine(line, logPath));
+  const stdoutSplitter = new LineSplitter((line) => handleProtocolLine(line, logStream));
   child.stdout.on("data", (chunk: Buffer) => {
     process.stdout.write(chunk);
     stdoutSplitter.push(chunk);
   });
   child.stdout.on("close", () => stdoutSplitter.flush());
 
-  const stderrSplitter = new LineSplitter((line) => handleDebugLine(line, logPath));
+  const stderrSplitter = new LineSplitter((line) => handleDebugLine(line, logStream));
   child.stderr.on("data", (chunk: Buffer) => stderrSplitter.push(chunk));
   child.stderr.on("close", () => stderrSplitter.flush());
 
@@ -114,8 +118,12 @@ function run(target: string, targetArgs: string[]): void {
     process.exitCode = 1;
   });
 
-  child.on("exit", (code, signal) => {
+  // "close" (not "exit") guarantees stdout/stderr have finished emitting
+  // "close" themselves, so the flush() calls above have already run and
+  // it's safe to end the log stream without a "write after end" race
+  child.on("close", (code, signal) => {
     process.exitCode = code ?? (signal ? 1 : 0);
+    logStream.end();
   });
 }
 
