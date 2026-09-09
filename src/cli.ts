@@ -94,8 +94,19 @@ function run(target: string, targetArgs: string[]): void {
   child.stderr.on("data", (chunk: Buffer) => stderrSplitter.push(chunk));
   child.stderr.on("close", () => stderrSplitter.flush());
 
+  const killChild = (sig: NodeJS.Signals): void => {
+    // on Windows the child runs inside a cmd.exe wrapper (see shell above);
+    // killing that wrapper alone leaves the real process running, so kill
+    // the whole tree by pid instead
+    if (process.platform === "win32" && child.pid) {
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
+    } else {
+      child.kill(sig);
+    }
+  };
+
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
-    process.on(sig, () => child.kill(sig));
+    process.on(sig, () => killChild(sig));
   }
 
   child.on("error", (err) => {
