@@ -71,7 +71,11 @@ Replay a saved session later — defaults to the most recent one:
 ```bash
 mcp-debug replay
 mcp-debug replay .mcp-debug/session-1234567890.jsonl
+mcp-debug replay --follow   # keep printing new lines as another run appends them
 ```
+
+Only the most recent 20 session files are kept; older ones are
+deleted automatically on the next run.
 
 Or get a summary instead of the full trace:
 

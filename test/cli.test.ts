@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -31,7 +31,14 @@ function run(args: string[], input?: string, cwd?: string): Promise<RunResult> {
 
 const tempDirs: string[] = [];
 afterEach(() => {
-  for (const d of tempDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of tempDirs.splice(0)) {
+    // a just-killed child process can briefly hold a Windows file lock
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      rmSync(d, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  }
 });
 
 describe("mcp-debug run", () => {
@@ -145,6 +152,21 @@ describe("mcp-debug run", () => {
       expect(result.stderr).toContain("failed to start");
     }
   });
+
+  test("keeps only the most recent 20 session files", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "mcp-debug-test-"));
+    tempDirs.push(cwd);
+    const sessionDir = join(cwd, ".mcp-debug");
+    mkdirSync(sessionDir, { recursive: true });
+    for (let i = 0; i < 25; i++) {
+      writeFileSync(join(sessionDir, `session-${String(i).padStart(3, "0")}.jsonl`), "{}\n");
+    }
+
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    await run(["run", "--", "node", join(FIXTURES, "echo-server.js")], request, cwd);
+
+    expect(readdirSync(sessionDir).length).toBe(20);
+  });
 });
 
 describe("mcp-debug replay", () => {
@@ -185,6 +207,36 @@ describe("mcp-debug replay", () => {
     tempDirs.push(result.cwd);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("could not read");
+  });
+
+  test("--follow prints new lines appended after it starts", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "mcp-debug-test-"));
+    tempDirs.push(cwd);
+    const sessionDir = join(cwd, ".mcp-debug");
+    mkdirSync(sessionDir, { recursive: true });
+    const sessionFile = join(sessionDir, "session-1.jsonl");
+    writeFileSync(sessionFile, JSON.stringify({ time: "t1", channel: "log", level: "info", text: "first" }) + "\n");
+
+    const child = spawn("bun", [CLI, "replay", "--follow"], { cwd });
+    let stdout = "";
+    child.stdout.on("data", (d) => (stdout += d.toString()));
+
+    await new Promise((r) => setTimeout(r, 500));
+    expect(stdout).toContain("first");
+
+    writeFileSync(
+      sessionFile,
+      JSON.stringify({ time: "t2", channel: "log", level: "info", text: "second" }) + "\n",
+      { flag: "a" },
+    );
+    await new Promise((r) => setTimeout(r, 800));
+    expect(stdout).toContain("second");
+
+    const exited = new Promise((r) => child.on("close", r));
+    child.kill();
+    await exited;
+    // give Windows a moment to release its file handles on the temp dir
+    await new Promise((r) => setTimeout(r, 200));
   });
 });
 

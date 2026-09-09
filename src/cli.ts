@@ -2,12 +2,18 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
   accessSync,
+  closeSync,
   constants,
   createWriteStream,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
+  statSync,
+  unlinkSync,
+  watchFile,
   type WriteStream,
 } from "node:fs";
 import { join } from "node:path";
@@ -25,6 +31,20 @@ const COLOR = {
 };
 
 const LEVEL_ORDER = ["debug", "info", "warn", "error"];
+const MAX_SESSIONS = 20;
+
+function cleanupOldSessions(dir: string, keep: number): void {
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".jsonl"))
+    .sort();
+  for (const f of files.slice(0, Math.max(0, files.length - keep))) {
+    try {
+      unlinkSync(join(dir, f));
+    } catch {
+      // best effort
+    }
+  }
+}
 
 let useColor = true;
 function paint(code: string, text: string): string {
@@ -106,7 +126,7 @@ function printUsage(): void {
       "Usage: mcp-debug run -- <command> [args...]",
       "",
       "  mcp-debug run [flags] -- node server.js   wrap a stdio MCP server",
-      "  mcp-debug replay [--no-color] [file]      pretty-print a saved session (defaults to the latest)",
+      "  mcp-debug replay [--follow] [file]        pretty-print a saved session (defaults to the latest)",
       "  mcp-debug stats [file]                    summarize a saved session (defaults to the latest)",
       "  mcp-debug doctor -- <command>              sanity-check the environment and command",
       "  mcp-debug --version                       print the installed version",
@@ -161,6 +181,9 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
 
   const sessionDir = join(process.cwd(), ".mcp-debug");
   mkdirSync(sessionDir, { recursive: true });
+  // clean up before creating this run's file: createWriteStream opens
+  // asynchronously, so a cleanup after it would race and miss the new file
+  cleanupOldSessions(sessionDir, MAX_SESSIONS - 1);
   const logPath = join(sessionDir, `session-${Date.now()}.jsonl`);
   const logStream = createWriteStream(logPath, { flags: "a" });
   logStream.on("error", (err) => {
@@ -258,41 +281,56 @@ function readSessionFile(sessionPath: string): string {
   }
 }
 
-function replay(path: string | undefined, noColor: boolean): void {
+function printSessionLine(line: string): void {
+  if (!line.trim()) return;
+  let entry: {
+    time: string;
+    channel: string;
+    text: string;
+    level?: string;
+    direction?: string;
+    latencyMs?: number;
+    isError?: boolean;
+  };
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return;
+  }
+
+  if (entry.channel === "protocol") {
+    const color =
+      entry.direction === "anomaly"
+        ? COLOR.yellow
+        : entry.isError || (entry.latencyMs !== undefined && entry.latencyMs > SLOW_THRESHOLD_MS)
+          ? COLOR.red
+          : COLOR.cyan;
+    process.stdout.write(`${paint(color, `${entry.time} [rpc]`)} ${entry.text}\n`);
+  } else {
+    const color = entry.level === "error" ? COLOR.red : entry.level === "warn" ? COLOR.yellow : COLOR.gray;
+    process.stdout.write(`${paint(color, `${entry.time} [${entry.level}]`)} ${entry.text}\n`);
+  }
+}
+
+function replay(path: string | undefined, noColor: boolean, follow: boolean): void {
   useColor = !noColor && !!process.stdout.isTTY;
   const sessionPath = resolveSessionPath(path);
   const content = readSessionFile(sessionPath);
+  for (const line of content.split("\n")) printSessionLine(line);
 
-  for (const line of content.split("\n")) {
-    if (!line.trim()) continue;
-    let entry: {
-      time: string;
-      channel: string;
-      text: string;
-      level?: string;
-      direction?: string;
-      latencyMs?: number;
-      isError?: boolean;
-    };
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
+  if (!follow) return;
 
-    if (entry.channel === "protocol") {
-      const color =
-        entry.direction === "anomaly"
-          ? COLOR.yellow
-          : entry.isError || (entry.latencyMs !== undefined && entry.latencyMs > SLOW_THRESHOLD_MS)
-            ? COLOR.red
-            : COLOR.cyan;
-      process.stdout.write(`${paint(color, `${entry.time} [rpc]`)} ${entry.text}\n`);
-    } else {
-      const color = entry.level === "error" ? COLOR.red : entry.level === "warn" ? COLOR.yellow : COLOR.gray;
-      process.stdout.write(`${paint(color, `${entry.time} [${entry.level}]`)} ${entry.text}\n`);
-    }
-  }
+  let position = statSync(sessionPath).size;
+  watchFile(sessionPath, { interval: 300 }, () => {
+    const size = statSync(sessionPath).size;
+    if (size <= position) return;
+    const fd = openSync(sessionPath, "r");
+    const buf = Buffer.alloc(size - position);
+    readSync(fd, buf, 0, buf.length, position);
+    closeSync(fd);
+    position = size;
+    for (const line of buf.toString("utf8").split("\n")) printSessionLine(line);
+  });
 }
 
 function statsCmd(path: string | undefined): void {
@@ -377,8 +415,9 @@ function main(): void {
   if (args[0] === "replay") {
     const rest = args.slice(1);
     const noColor = rest.includes("--no-color");
-    const path = rest.find((a) => a !== "--no-color");
-    replay(path, noColor);
+    const follow = rest.includes("--follow");
+    const path = rest.find((a) => a !== "--no-color" && a !== "--follow");
+    replay(path, noColor, follow);
     return;
   }
 

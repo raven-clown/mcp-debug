@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.0
+
+- `mcp-debug replay --follow` keeps printing new lines as another run appends to the session file
+- Old session files are cleaned up automatically, keeping the most recent 20
+
 ## 1.5.0
 
 - `mcp-debug doctor -- <command>` checks the runtime, whether the target command resolves on `PATH`, and whether the current directory is writable
