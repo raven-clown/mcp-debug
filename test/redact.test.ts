@@ -19,6 +19,18 @@ describe("redact", () => {
     expect(redact({ method: "ping", id: 1 })).toEqual({ method: "ping", id: 1 });
   });
 
+  test("hides content past the depth cap instead of returning it unredacted", () => {
+    const deep = { a: { b: { c: { d: { e: { f: { g: { token: "SECRET" } } } } } } } };
+    const serialized = JSON.stringify(redact(deep));
+    expect(serialized).not.toContain("SECRET");
+    expect(serialized).toContain("nested too deep");
+  });
+
+  test("still redacts normally within the depth cap", () => {
+    const shallow = { a: { b: { token: "abc" } } };
+    expect(redact(shallow)).toEqual({ a: { b: { token: "[redacted]" } } });
+  });
+
   test("does not let a __proto__ key pollute the returned object's prototype", () => {
     const malicious = JSON.parse('{"__proto__": {"polluted": "yes"}, "token": "secret"}');
     const out = redact(malicious) as Record<string, unknown>;

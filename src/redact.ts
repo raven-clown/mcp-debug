@@ -1,7 +1,12 @@
 const SENSITIVE_KEY = /token|secret|password|passwd|api[_-]?key|authorization/i;
 
 export function redact(value: unknown, depth = 0): unknown {
-  if (depth > 6 || value === null || typeof value !== "object") return value;
+  if (value === null || typeof value !== "object") return value;
+
+  // fail closed: past the depth cap, hide the remaining structure instead
+  // of returning it unredacted (a secret nested deep enough must not slip
+  // through just because we stopped walking it)
+  if (depth > 6) return "[redacted: nested too deep]";
 
   if (Array.isArray(value)) return value.map((v) => redact(v, depth + 1));
 

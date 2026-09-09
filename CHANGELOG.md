@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.12 (security)
+
+- Fixed `redact()` returning nested content completely unredacted once it passed the depth cap (6 levels), instead of hiding it — a secret nested 7+ levels deep would leak in full into `--verbose` output and the session log file. It now fails closed: content past the cap is replaced with a placeholder, never returned raw.
+- Pinned every third-party GitHub Action used in CI/release workflows to an exact commit SHA instead of a floating major-version tag (e.g. `@v4`). A compromised or force-moved tag on any of these actions would otherwise be pulled in automatically on the next run with no review — this closes that supply-chain window. `publish.yml` (which holds `id-token: write` and `contents: write`) was the priority, but all workflows are now pinned.
+- Removed `dependency-review.yml`: it only triggers on `pull_request`, and this repo has never used pull requests (direct pushes only) — the workflow had 0 runs since it was added. It gave the appearance of a security check that was never actually running. Dependency vulnerability coverage is already provided by the `audit.yml` workflow added earlier, which does run.
+
 ## 1.6.11 (security)
 
 - Fixed `mcp-debug replay --follow` getting permanently stuck showing no further updates if the session file was truncated or recreated (e.g. after a disk issue, or by pointing `--follow` at a file another tool overwrites) — it now detects the file shrinking and resyncs from the new content instead of waiting forever past a stale byte offset.
