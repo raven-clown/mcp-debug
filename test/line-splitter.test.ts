@@ -54,4 +54,29 @@ describe("LineSplitter", () => {
     splitter.push(Buffer.from("buffered\n"));
     expect(lines).toEqual(["buffered"]);
   });
+
+  test("reassembles a multi-byte UTF-8 character split across chunks", () => {
+    const text = "สวัสดีครับ 你好 🎉 end\n";
+    const buf = Buffer.from(text, "utf8");
+    for (let splitPoint = 1; splitPoint < buf.length; splitPoint++) {
+      const lines: string[] = [];
+      const splitter = new LineSplitter((l) => lines.push(l));
+      splitter.push(buf.subarray(0, splitPoint));
+      splitter.push(buf.subarray(splitPoint));
+      expect(lines[0]).toBe(text.trimEnd());
+    }
+  });
+
+  test("flush decodes a trailing partial multi-byte character", () => {
+    const text = "emoji at the end: 🎉";
+    const buf = Buffer.from(text, "utf8");
+    for (let splitPoint = 1; splitPoint < buf.length; splitPoint++) {
+      const lines: string[] = [];
+      const splitter = new LineSplitter((l) => lines.push(l));
+      splitter.push(buf.subarray(0, splitPoint));
+      splitter.push(buf.subarray(splitPoint));
+      splitter.flush();
+      expect(lines[0]).toBe(text);
+    }
+  });
 });

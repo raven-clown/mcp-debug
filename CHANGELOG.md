@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.13
+
+- Fixed multi-byte UTF-8 characters (Thai, CJK, emoji, ...) getting corrupted into `�` in debug logs and the protocol trace when a character landed across two separate stdout/stderr writes — a real risk for any server producing non-ASCII text, since Node delivers arbitrary chunk boundaries. Switched from raw `Buffer.toString()` to `StringDecoder`, which buffers incomplete byte sequences across chunks instead of prematurely replacing them. Verified across every possible split point of a mixed Thai/CJK/emoji string, and end-to-end with a server writing one byte at a time. `stdout` passthrough was never affected (bytes were always relayed untouched) — this only fixes what mcp-debug logs and displays itself.
+
 ## 1.6.12 (security)
 
 - Fixed `redact()` returning nested content completely unredacted once it passed the depth cap (6 levels), instead of hiding it — a secret nested 7+ levels deep would leak in full into `--verbose` output and the session log file. It now fails closed: content past the cap is replaced with a placeholder, never returned raw.

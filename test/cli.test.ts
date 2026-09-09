@@ -55,6 +55,18 @@ describe("mcp-debug run", () => {
     });
   });
 
+  test("does not corrupt multi-byte UTF-8 text written one byte at a time", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "greet" }) + "\n";
+    const result = await run(["run", "--", "node", join(FIXTURES, "chunky-utf8-server.js")], request);
+    tempDirs.push(result.cwd);
+
+    expect(JSON.parse(result.stdout.trim())).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { text: "สวัสดีครับ 你好 🎉" },
+    });
+  });
+
   test("keeps debug logs off stdout", async () => {
     const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
     const result = await run(["run", "--", "node", join(FIXTURES, "echo-server.js")], request);
