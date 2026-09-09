@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { LineSplitter } from "./line-splitter.js";
-import { parseIncoming, parseOutgoing, SLOW_THRESHOLD_MS, type PendingEntry, type ProtocolMessage } from "./protocol.js";
+import { createPendingState, parseIncoming, parseOutgoing, SLOW_THRESHOLD_MS, type ProtocolMessage } from "./protocol.js";
 import { computeStats, type SessionEntry } from "./stats.js";
 
 const COLOR = {
@@ -195,7 +195,7 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
     shell: process.platform === "win32",
   });
 
-  const pending = new Map<string, PendingEntry>();
+  const pending = createPendingState();
   const counters: RunCounters = {
     requests: 0,
     responses: 0,

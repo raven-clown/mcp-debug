@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.2
+
+- Fixed client responses to server-initiated requests (e.g. `sampling/createMessage`) being misclassified as malformed anomalies instead of responses. Client and server request ids are now tracked in separate pending sets, since each is an independent numbering sequence and could otherwise collide.
+
 ## 1.6.1
 
 - Fixed `mcp-debug doctor` always emitting ANSI color codes, even when output isn't a real terminal (introduced in 1.5.0)
