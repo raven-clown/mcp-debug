@@ -73,6 +73,20 @@ mcp-debug replay
 mcp-debug replay .mcp-debug/session-1234567890.jsonl
 ```
 
+### Flags
+
+```bash
+mcp-debug run --verbose -- node server.js       # show full request/response payloads
+mcp-debug run --level=warn -- node server.js    # only show warn/error debug logs
+mcp-debug run --no-color -- node server.js      # disable ANSI colors
+```
+
+Colors are on automatically in a real terminal and off when piped to
+a file or another process. `--verbose` redacts fields that look like
+secrets (`token`, `apiKey`, `password`, `authorization`, ...) before
+printing or logging them — the raw data passed through `stdout` is
+never touched.
+
 ```bash
 mcp-debug --version
 mcp-debug --help

@@ -100,6 +100,34 @@ describe("mcp-debug run", () => {
     expect(result.stderr).toContain("1 requests, 1 responses");
   });
 
+  test("--level filters out lower-severity debug logs", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const result = await run(
+      ["run", "--level=error", "--", "node", join(FIXTURES, "echo-server.js")],
+      request,
+    );
+    tempDirs.push(result.cwd);
+    expect(result.stderr).not.toContain("[info]");
+    expect(result.stderr).not.toContain("[debug]");
+  });
+
+  test("--verbose includes the full payload and redacts secrets", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping", params: { token: "sekrit" } }) + "\n";
+    const result = await run(["run", "--verbose", "--", "node", join(FIXTURES, "echo-server.js")], request);
+    tempDirs.push(result.cwd);
+    expect(result.stderr).toContain("[redacted]");
+    expect(result.stderr).not.toContain("sekrit");
+    // the raw passthrough on stdout must stay untouched
+    expect(result.stdout).toContain("sekrit");
+  });
+
+  test("--no-color disables ANSI escape codes", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const result = await run(["run", "--no-color", "--", "node", join(FIXTURES, "echo-server.js")], request);
+    tempDirs.push(result.cwd);
+    expect(result.stderr).not.toContain("\x1b[");
+  });
+
   test("exits with the wrapped process's exit code", async () => {
     const result = await run(["run", "--", "node", join(FIXTURES, "exit-with-code.js"), "3"]);
     tempDirs.push(result.cwd);

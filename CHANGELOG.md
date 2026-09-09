@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+
+- `--level=debug|info|warn|error` filters which debug logs show in the terminal (the session file still gets everything)
+- `--verbose` prints full request/response payloads, with likely-sensitive fields (tokens, keys, passwords) redacted
+- `--no-color` disables ANSI colors; colors now also auto-disable when output isn't a real terminal
+
 ## 1.2.0
 
 - Requests are now traced too, not just responses (`→ ping id=1` / `← ping id=1 (55ms)`)

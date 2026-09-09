@@ -20,6 +20,21 @@ const COLOR = {
   red: "\x1b[31m",
 };
 
+const LEVEL_ORDER = ["debug", "info", "warn", "error"];
+
+let useColor = true;
+function paint(code: string, text: string): string {
+  return useColor ? `${code}${text}${COLOR.reset}` : text;
+}
+
+function levelAllowed(min: string | undefined, level: string): boolean {
+  if (!min) return true;
+  const minIdx = LEVEL_ORDER.indexOf(min);
+  const idx = LEVEL_ORDER.indexOf(level);
+  if (minIdx === -1 || idx === -1) return true;
+  return idx >= minIdx;
+}
+
 function colorForProtocol(msg: ProtocolMessage): string {
   if (msg.direction === "anomaly") return COLOR.yellow;
   if (msg.direction === "response" && msg.isError) return COLOR.red;
@@ -48,7 +63,7 @@ function writeProtocolMessages(messages: ProtocolMessage[], logStream: WriteStre
     }
 
     const time = new Date().toISOString();
-    process.stderr.write(`${colorForProtocol(msg)}${time} [rpc]${COLOR.reset} ${msg.summary}\n`);
+    process.stderr.write(`${paint(colorForProtocol(msg), `${time} [rpc]`)} ${msg.summary}\n`);
     logStream.write(
       JSON.stringify({
         time,
@@ -73,7 +88,7 @@ function printSummary(counters: RunCounters): void {
     const max = Math.max(...counters.latencies);
     parts.push(`avg ${avg}ms`, `slowest ${max}ms`);
   }
-  process.stderr.write(`${COLOR.gray}mcp-debug summary:${COLOR.reset} ${parts.join(", ")}\n`);
+  process.stderr.write(`${paint(COLOR.gray, "mcp-debug summary:")} ${parts.join(", ")}\n`);
 }
 
 function readVersion(): string {
@@ -86,16 +101,18 @@ function printUsage(): void {
     [
       "Usage: mcp-debug run -- <command> [args...]",
       "",
-      "  mcp-debug run -- node server.js   wrap a stdio MCP server",
-      "  mcp-debug replay [session-file]   pretty-print a saved session (defaults to the latest)",
-      "  mcp-debug --version               print the installed version",
-      "  mcp-debug --help                  show this message",
+      "  mcp-debug run [flags] -- node server.js   wrap a stdio MCP server",
+      "  mcp-debug replay [--no-color] [file]      pretty-print a saved session (defaults to the latest)",
+      "  mcp-debug --version                       print the installed version",
+      "  mcp-debug --help                          show this message",
+      "",
+      "Flags for run: --verbose  --level=debug|info|warn|error  --no-color",
       "",
     ].join("\n"),
   );
 }
 
-function handleDebugLine(line: string, logStream: WriteStream): void {
+function handleDebugLine(line: string, logStream: WriteStream, minLevel: string | undefined): void {
   let text = line;
   let level = "log";
   try {
@@ -109,13 +126,33 @@ function handleDebugLine(line: string, logStream: WriteStream): void {
   } catch {
     // not a structured entry, print the raw line as-is
   }
-  const color = level === "error" ? COLOR.red : level === "warn" ? COLOR.yellow : COLOR.gray;
   const time = new Date().toISOString();
-  process.stderr.write(`${color}${time} [${level}]${COLOR.reset} ${text}\n`);
   logStream.write(JSON.stringify({ time, channel: "log", level, text }) + "\n");
+
+  if (!levelAllowed(minLevel, level)) return;
+  const color = level === "error" ? COLOR.red : level === "warn" ? COLOR.yellow : COLOR.gray;
+  process.stderr.write(`${paint(color, `${time} [${level}]`)} ${text}\n`);
 }
 
-function run(target: string, targetArgs: string[]): void {
+interface RunFlags {
+  level?: string;
+  verbose: boolean;
+  noColor: boolean;
+}
+
+function parseFlags(args: string[]): RunFlags {
+  const flags: RunFlags = { verbose: false, noColor: false };
+  for (const a of args) {
+    if (a.startsWith("--level=")) flags.level = a.slice("--level=".length);
+    else if (a === "--verbose") flags.verbose = true;
+    else if (a === "--no-color") flags.noColor = true;
+  }
+  return flags;
+}
+
+function run(target: string, targetArgs: string[], flags: RunFlags): void {
+  useColor = !flags.noColor && !!process.stderr.isTTY;
+
   const sessionDir = join(process.cwd(), ".mcp-debug");
   mkdirSync(sessionDir, { recursive: true });
   const logPath = join(sessionDir, `session-${Date.now()}.jsonl`);
@@ -140,13 +177,13 @@ function run(target: string, targetArgs: string[]): void {
   };
 
   const stdinSplitter = new LineSplitter((line) => {
-    writeProtocolMessages(parseOutgoing(line, pending, false), logStream, counters);
+    writeProtocolMessages(parseOutgoing(line, pending, flags.verbose), logStream, counters);
   });
   process.stdin.on("data", (chunk: Buffer) => stdinSplitter.push(chunk));
   process.stdin.pipe(child.stdin);
 
   const stdoutSplitter = new LineSplitter((line) => {
-    writeProtocolMessages(parseIncoming(line, pending, false), logStream, counters);
+    writeProtocolMessages(parseIncoming(line, pending, flags.verbose), logStream, counters);
   });
   child.stdout.on("data", (chunk: Buffer) => {
     process.stdout.write(chunk);
@@ -154,7 +191,7 @@ function run(target: string, targetArgs: string[]): void {
   });
   child.stdout.on("close", () => stdoutSplitter.flush());
 
-  const stderrSplitter = new LineSplitter((line) => handleDebugLine(line, logStream));
+  const stderrSplitter = new LineSplitter((line) => handleDebugLine(line, logStream, flags.level));
   child.stderr.on("data", (chunk: Buffer) => stderrSplitter.push(chunk));
   child.stderr.on("close", () => stderrSplitter.flush());
 
@@ -197,7 +234,8 @@ function findLatestSession(): string | undefined {
   return files.length > 0 ? join(dir, files[files.length - 1]) : undefined;
 }
 
-function replay(path: string | undefined): void {
+function replay(path: string | undefined, noColor: boolean): void {
+  useColor = !noColor && !!process.stdout.isTTY;
   const sessionPath = path ?? findLatestSession();
   if (!sessionPath) {
     process.stderr.write("mcp-debug: no session file found (pass a path, or run in a directory with .mcp-debug/)\n");
@@ -236,10 +274,10 @@ function replay(path: string | undefined): void {
           : entry.isError || (entry.latencyMs !== undefined && entry.latencyMs > SLOW_THRESHOLD_MS)
             ? COLOR.red
             : COLOR.cyan;
-      process.stdout.write(`${color}${entry.time} [rpc]${COLOR.reset} ${entry.text}\n`);
+      process.stdout.write(`${paint(color, `${entry.time} [rpc]`)} ${entry.text}\n`);
     } else {
       const color = entry.level === "error" ? COLOR.red : entry.level === "warn" ? COLOR.yellow : COLOR.gray;
-      process.stdout.write(`${color}${entry.time} [${entry.level}]${COLOR.reset} ${entry.text}\n`);
+      process.stdout.write(`${paint(color, `${entry.time} [${entry.level}]`)} ${entry.text}\n`);
     }
   }
 }
@@ -258,7 +296,10 @@ function main(): void {
   }
 
   if (args[0] === "replay") {
-    replay(args[1]);
+    const rest = args.slice(1);
+    const noColor = rest.includes("--no-color");
+    const path = rest.find((a) => a !== "--no-color");
+    replay(path, noColor);
     return;
   }
 
@@ -273,7 +314,8 @@ function main(): void {
     process.exit(1);
   }
 
-  run(args[sepIndex + 1], args.slice(sepIndex + 2));
+  const flags = parseFlags(args.slice(1, sepIndex));
+  run(args[sepIndex + 1], args.slice(sepIndex + 2), flags);
 }
 
 main();
