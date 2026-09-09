@@ -49,12 +49,18 @@ debug("request.received", { method: "ping" });
 Each run writes a session file to `.mcp-debug/session-<time>.jsonl`
 with every log line and protocol message, in order, for later replay.
 
+```bash
+mcp-debug --version
+mcp-debug --help
+```
+
 ## Development
 
 ```bash
 bun install
 bun run build
 bun run typecheck
+bun test
 ```
 
 ## License

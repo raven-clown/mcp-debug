@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
+import { createWriteStream, mkdirSync, readFileSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
+import { LineSplitter } from "./line-splitter.js";
 
 const COLOR = {
   reset: "\x1b[0m",
@@ -11,29 +12,22 @@ const COLOR = {
   red: "\x1b[31m",
 };
 
-class LineSplitter {
-  private buf = "";
-  constructor(private onLine: (line: string) => void) {}
-
-  push(chunk: Buffer): void {
-    this.buf += chunk.toString("utf8");
-    let idx: number;
-    while ((idx = this.buf.indexOf("\n")) >= 0) {
-      const line = this.buf.slice(0, idx).replace(/\r$/, "");
-      this.buf = this.buf.slice(idx + 1);
-      if (line.length > 0) this.onLine(line);
-    }
-  }
-
-  flush(): void {
-    const rest = this.buf.replace(/\r$/, "");
-    this.buf = "";
-    if (rest.length > 0) this.onLine(rest);
-  }
+function readVersion(): string {
+  const pkgPath = new URL("../package.json", import.meta.url);
+  return JSON.parse(readFileSync(pkgPath, "utf8")).version;
 }
 
 function printUsage(): void {
-  process.stderr.write("Usage: mcp-debug run -- <command> [args...]\n");
+  process.stderr.write(
+    [
+      "Usage: mcp-debug run -- <command> [args...]",
+      "",
+      "  mcp-debug run -- node server.js   wrap a stdio MCP server",
+      "  mcp-debug --version               print the installed version",
+      "  mcp-debug --help                  show this message",
+      "",
+    ].join("\n"),
+  );
 }
 
 function handleProtocolLine(line: string, logStream: WriteStream): void {
@@ -129,6 +123,17 @@ function run(target: string, targetArgs: string[]): void {
 
 function main(): void {
   const args = process.argv.slice(2);
+
+  if (args[0] === "--version" || args[0] === "-v") {
+    process.stdout.write(readVersion() + "\n");
+    return;
+  }
+
+  if (args[0] === "--help" || args[0] === "-h") {
+    printUsage();
+    return;
+  }
+
   if (args[0] !== "run") {
     printUsage();
     process.exit(args[0] ? 1 : 0);
