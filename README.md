@@ -1,5 +1,10 @@
 # mcp-debug
 
+[![npm version](https://img.shields.io/npm/v/mcp-stdio-debug.svg)](https://www.npmjs.com/package/mcp-stdio-debug)
+[![npm downloads](https://img.shields.io/npm/dm/mcp-stdio-debug.svg)](https://www.npmjs.com/package/mcp-stdio-debug)
+[![CI](https://github.com/raven-clown/mcp-debug/actions/workflows/ci.yml/badge.svg)](https://github.com/raven-clown/mcp-debug/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/mcp-stdio-debug.svg)](LICENSE)
+
 Debug logging and protocol tracing for stdio-based MCP servers.
 
 ## The problem
