@@ -11,13 +11,13 @@ Debug logging and protocol tracing for stdio-based MCP servers.
 
 Stdio MCP servers use `stdout` as the JSON-RPC transport. A stray
 `console.log` writes into that same stream and breaks the client's
-parser — so the usual way to debug is unavailable.
+parser, so the usual way to debug is unavailable.
 
 ## What it does
 
 `mcp-debug` wraps your server process. `stdout` is relayed to the
-client byte-for-byte, untouched. Everything useful for a human —
-your debug logs and a summary of each JSON-RPC message — goes to
+client byte-for-byte, untouched. Everything useful for a human,
+your debug logs and a summary of each JSON-RPC message, goes to
 `stderr` and to a session log file instead.
 
 ![mcp-debug terminal output](assets/terminal.svg)
@@ -66,7 +66,7 @@ mcp-debug summary: 1 requests, 1 responses, avg 55ms, slowest 55ms
 Each run writes a session file to `.mcp-debug/session-<time>.jsonl`
 with every log line and protocol message, in order.
 
-Replay a saved session later — defaults to the most recent one:
+Replay a saved session later. Defaults to the most recent one:
 
 ```bash
 mcp-debug replay
@@ -104,13 +104,13 @@ mcp-debug run --no-color -- node server.js      # disable ANSI colors
 
 Fields that look like secrets (`token`, `apiKey`, `password`,
 `authorization`, ...) are redacted in `--verbose` payloads and in
-`data` passed to the logger (`debug("auth", { token })`) — both on
-screen and in the session file — regardless of `--verbose`.
+`data` passed to the logger (`debug("auth", { token })`), both on
+screen and in the session file, regardless of `--verbose`.
 
 ### Doctor
 
 Sanity-check the environment before you spend time debugging the
-wrong thing — is the command on `PATH`, is the current directory
+wrong thing: is the command on `PATH`, is the current directory
 writable:
 
 ```bash
@@ -141,4 +141,4 @@ bun test
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

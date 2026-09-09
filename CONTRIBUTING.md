@@ -12,7 +12,7 @@ bun test
 ## Making changes
 
 1. Fork the repo and create a branch off `master`.
-2. Keep changes scoped — one fix or feature per pull request.
+2. Keep changes scoped: one fix or feature per pull request.
 3. Run `bun run typecheck`, `bun run build`, and `bun test` before opening a PR.
 4. Describe what changed and why in the PR description.
 
@@ -25,5 +25,5 @@ Open an issue with:
 
 ## Code style
 
-- No unnecessary comments — code should read on its own.
+- No unnecessary comments. Code should read on its own.
 - Keep functions small and single-purpose.
