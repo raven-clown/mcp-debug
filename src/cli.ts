@@ -19,6 +19,7 @@ import {
 import { join } from "node:path";
 import { LineSplitter } from "./line-splitter.js";
 import { createPendingState, parseIncoming, parseOutgoing, SLOW_THRESHOLD_MS, type ProtocolMessage } from "./protocol.js";
+import { redact } from "./redact.js";
 import { computeStats, type SessionEntry } from "./stats.js";
 
 const COLOR = {
@@ -145,7 +146,7 @@ function handleDebugLine(line: string, logStream: WriteStream, minLevel: string 
     const parsed = JSON.parse(line);
     if (parsed && typeof parsed === "object" && "level" in parsed) {
       level = String(parsed.level);
-      text = [parsed.label, parsed.data !== undefined ? JSON.stringify(parsed.data) : ""]
+      text = [parsed.label, parsed.data !== undefined ? JSON.stringify(redact(parsed.data)) : ""]
         .filter(Boolean)
         .join(" ");
     }

@@ -128,6 +128,19 @@ describe("mcp-debug run", () => {
     expect(result.stdout).toContain("sekrit");
   });
 
+  test("redacts secrets from debug log data even without --verbose", async () => {
+    const result = await run(["run", "--", "node", join(FIXTURES, "leaky-server.js")]);
+    tempDirs.push(result.cwd);
+    expect(result.stderr).toContain("[redacted]");
+    expect(result.stderr).not.toContain("super-secret-token-123");
+
+    const sessionDir = join(result.cwd, ".mcp-debug");
+    const file = readdirSync(sessionDir)[0];
+    const content = readFileSync(join(sessionDir, file), "utf8");
+    expect(content).toContain("[redacted]");
+    expect(content).not.toContain("super-secret-token-123");
+  });
+
   test("--no-color disables ANSI escape codes", async () => {
     const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
     const result = await run(["run", "--no-color", "--", "node", join(FIXTURES, "echo-server.js")], request);

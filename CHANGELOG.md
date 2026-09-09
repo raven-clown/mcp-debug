@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.3 (security)
+
+- `debug`/`info`/`warn`/`error` log data was written to the terminal and session file unredacted, even without `--verbose`. Fields that look like secrets (`token`, `apiKey`, `password`, `authorization`, ...) are now redacted the same way verbose protocol payloads already were. If you've used `mcp-stdio-debug` to log request data containing credentials, check `.mcp-debug/*.jsonl` files written by earlier versions and remove them.
+
 ## 1.6.2
 
 - Fixed client responses to server-initiated requests (e.g. `sampling/createMessage`) being misclassified as malformed anomalies instead of responses. Client and server request ids are now tracked in separate pending sets, since each is an independent numbering sequence and could otherwise collide.

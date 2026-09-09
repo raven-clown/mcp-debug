@@ -102,6 +102,11 @@ mcp-debug run --level=warn -- node server.js    # only show warn/error debug log
 mcp-debug run --no-color -- node server.js      # disable ANSI colors
 ```
 
+Fields that look like secrets (`token`, `apiKey`, `password`,
+`authorization`, ...) are redacted in `--verbose` payloads and in
+`data` passed to the logger (`debug("auth", { token })`) — both on
+screen and in the session file — regardless of `--verbose`.
+
 ### Doctor
 
 Sanity-check the environment before you spend time debugging the
