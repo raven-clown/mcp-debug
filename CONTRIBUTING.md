@@ -6,13 +6,14 @@
 bun install
 bun run build
 bun run typecheck
+bun test
 ```
 
 ## Making changes
 
-1. Fork the repo and create a branch off `main`.
+1. Fork the repo and create a branch off `master`.
 2. Keep changes scoped — one fix or feature per pull request.
-3. Run `bun run typecheck` and `bun run build` before opening a PR.
+3. Run `bun run typecheck`, `bun run build`, and `bun test` before opening a PR.
 4. Describe what changed and why in the PR description.
 
 ## Reporting bugs
