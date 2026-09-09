@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.9
+
+- Fixed `mcp-debug doctor <command>` (forgetting `--`) silently ignoring the command and exiting 0 as if everything passed, instead of checking it. It now errors with a usage hint.
+
 ## 1.6.8
 
 - Fixed `mcp-debug doctor` occasionally hanging indefinitely on Windows when checking whether a command is on `PATH` (seen as a CI timeout on `windows-latest`). `where`/`which` now run with a 3-second timeout instead of none.

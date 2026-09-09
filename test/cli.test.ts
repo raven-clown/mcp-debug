@@ -312,6 +312,13 @@ describe("mcp-debug doctor", () => {
     expect(result.stdout).toContain("runtime:");
   });
 
+  test("errors instead of silently ignoring a target given without --", async () => {
+    const result = await run(["doctor", "node"]);
+    tempDirs.push(result.cwd);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("--");
+  });
+
   test("does not emit ANSI color codes when not a TTY", async () => {
     const result = await run(["doctor", "--", "node"]);
     tempDirs.push(result.cwd);

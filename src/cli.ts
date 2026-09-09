@@ -443,6 +443,10 @@ function main(): void {
 
   if (args[0] === "doctor") {
     const sepIndex = args.indexOf("--");
+    if (sepIndex === -1 && args.length > 1) {
+      process.stderr.write('mcp-debug: doctor takes a command after "--", e.g. mcp-debug doctor -- node\n');
+      process.exit(1);
+    }
     const target = sepIndex !== -1 ? args[sepIndex + 1] : undefined;
     doctor(target);
     return;
