@@ -73,6 +73,23 @@ mcp-debug replay
 mcp-debug replay .mcp-debug/session-1234567890.jsonl
 ```
 
+Or get a summary instead of the full trace:
+
+```bash
+mcp-debug stats
+```
+```
+Requests: 12
+Responses: 12 (1 errors)
+Notifications: 2
+Latency: avg 34ms, p95 112ms
+Slowest: tools/call id=9 (340ms)
+
+By method:
+  tools/call: 8 calls, avg 45ms
+  resources/read: 4 calls, avg 12ms
+```
+
 ### Flags
 
 ```bash

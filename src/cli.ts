@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import { LineSplitter } from "./line-splitter.js";
 import { parseIncoming, parseOutgoing, SLOW_THRESHOLD_MS, type PendingEntry, type ProtocolMessage } from "./protocol.js";
+import { computeStats, type SessionEntry } from "./stats.js";
 
 const COLOR = {
   reset: "\x1b[0m",
@@ -103,6 +104,7 @@ function printUsage(): void {
       "",
       "  mcp-debug run [flags] -- node server.js   wrap a stdio MCP server",
       "  mcp-debug replay [--no-color] [file]      pretty-print a saved session (defaults to the latest)",
+      "  mcp-debug stats [file]                    summarize a saved session (defaults to the latest)",
       "  mcp-debug --version                       print the installed version",
       "  mcp-debug --help                          show this message",
       "",
@@ -234,21 +236,28 @@ function findLatestSession(): string | undefined {
   return files.length > 0 ? join(dir, files[files.length - 1]) : undefined;
 }
 
-function replay(path: string | undefined, noColor: boolean): void {
-  useColor = !noColor && !!process.stdout.isTTY;
+function resolveSessionPath(path: string | undefined): string {
   const sessionPath = path ?? findLatestSession();
   if (!sessionPath) {
     process.stderr.write("mcp-debug: no session file found (pass a path, or run in a directory with .mcp-debug/)\n");
     process.exit(1);
   }
+  return sessionPath;
+}
 
-  let content: string;
+function readSessionFile(sessionPath: string): string {
   try {
-    content = readFileSync(sessionPath, "utf8");
+    return readFileSync(sessionPath, "utf8");
   } catch (err) {
     process.stderr.write(`mcp-debug: could not read "${sessionPath}": ${(err as Error).message}\n`);
     process.exit(1);
   }
+}
+
+function replay(path: string | undefined, noColor: boolean): void {
+  useColor = !noColor && !!process.stdout.isTTY;
+  const sessionPath = resolveSessionPath(path);
+  const content = readSessionFile(sessionPath);
 
   for (const line of content.split("\n")) {
     if (!line.trim()) continue;
@@ -282,6 +291,41 @@ function replay(path: string | undefined, noColor: boolean): void {
   }
 }
 
+function statsCmd(path: string | undefined): void {
+  const sessionPath = resolveSessionPath(path);
+  const content = readSessionFile(sessionPath);
+
+  const entries: SessionEntry[] = [];
+  for (const line of content.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      entries.push(JSON.parse(line));
+    } catch {
+      // skip malformed lines
+    }
+  }
+
+  const s = computeStats(entries);
+  process.stdout.write(`Requests: ${s.requests}\n`);
+  process.stdout.write(`Responses: ${s.responses}${s.errors > 0 ? ` (${s.errors} errors)` : ""}\n`);
+  process.stdout.write(`Notifications: ${s.notifications}\n`);
+  if (s.anomalies > 0) process.stdout.write(`Anomalies: ${s.anomalies}\n`);
+  if (s.avgLatencyMs !== null) {
+    process.stdout.write(`Latency: avg ${s.avgLatencyMs}ms, p95 ${s.p95LatencyMs}ms\n`);
+  }
+  if (s.slowest) {
+    process.stdout.write(`Slowest: ${s.slowest.method} id=${s.slowest.id} (${s.slowest.latencyMs}ms)\n`);
+  }
+
+  const methods = Object.entries(s.byMethod).sort((a, b) => b[1].count - a[1].count);
+  if (methods.length > 0) {
+    process.stdout.write("\nBy method:\n");
+    for (const [method, m] of methods) {
+      process.stdout.write(`  ${method}: ${m.count} calls, avg ${m.avgLatencyMs}ms\n`);
+    }
+  }
+}
+
 function main(): void {
   const args = process.argv.slice(2);
 
@@ -300,6 +344,11 @@ function main(): void {
     const noColor = rest.includes("--no-color");
     const path = rest.find((a) => a !== "--no-color");
     replay(path, noColor);
+    return;
+  }
+
+  if (args[0] === "stats") {
+    statsCmd(args[1]);
     return;
   }
 

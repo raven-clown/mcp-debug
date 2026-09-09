@@ -188,6 +188,37 @@ describe("mcp-debug replay", () => {
   });
 });
 
+describe("mcp-debug stats", () => {
+  test("summarizes requests, responses, and latency", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const recorded = await run(["run", "--", "node", join(FIXTURES, "echo-server.js")], request);
+    tempDirs.push(recorded.cwd);
+
+    const result = await run(["stats"], undefined, recorded.cwd);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Requests: 1");
+    expect(result.stdout).toContain("Responses: 1");
+    expect(result.stdout).toMatch(/Latency: avg \d+ms, p95 \d+ms/);
+    expect(result.stdout).toContain("ping: 1 calls");
+  });
+
+  test("reports errors separately", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "fail" }) + "\n";
+    const recorded = await run(["run", "--", "node", join(FIXTURES, "error-server.js")], request);
+    tempDirs.push(recorded.cwd);
+
+    const result = await run(["stats"], undefined, recorded.cwd);
+    expect(result.stdout).toContain("1 errors");
+  });
+
+  test("fails clearly when no session exists", async () => {
+    const result = await run(["stats"]);
+    tempDirs.push(result.cwd);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("no session file found");
+  });
+});
+
 describe("mcp-debug flags", () => {
   test("--version prints the package version", async () => {
     const pkg = JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8"));

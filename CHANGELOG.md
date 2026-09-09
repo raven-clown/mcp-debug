@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0
+
+- `mcp-debug stats [file]` summarizes a saved session: request/response/error counts, avg and p95 latency, slowest call, and a per-method breakdown
+
 ## 1.3.0
 
 - `--level=debug|info|warn|error` filters which debug logs show in the terminal (the session file still gets everything)
