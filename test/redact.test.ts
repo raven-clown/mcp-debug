@@ -18,4 +18,13 @@ describe("redact", () => {
     expect(redact(null)).toBe(null);
     expect(redact({ method: "ping", id: 1 })).toEqual({ method: "ping", id: 1 });
   });
+
+  test("does not let a __proto__ key pollute the returned object's prototype", () => {
+    const malicious = JSON.parse('{"__proto__": {"polluted": "yes"}, "token": "secret"}');
+    const out = redact(malicious) as Record<string, unknown>;
+    expect(Object.getPrototypeOf(out)).toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(out, "__proto__")).toBe(true);
+    expect((out as { token: string }).token).toBe("[redacted]");
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
 });

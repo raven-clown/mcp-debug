@@ -324,6 +324,9 @@ function replay(path: string | undefined, noColor: boolean, follow: boolean): vo
   let position = statSync(sessionPath).size;
   watchFile(sessionPath, { interval: 300 }, () => {
     const size = statSync(sessionPath).size;
+    // the file was truncated or recreated (e.g. a new run started): resync
+    // from the start instead of getting permanently stuck past its new size
+    if (size < position) position = 0;
     if (size <= position) return;
     const fd = openSync(sessionPath, "r");
     const buf = Buffer.alloc(size - position);

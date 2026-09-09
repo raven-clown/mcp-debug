@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.11 (security)
+
+- Fixed `mcp-debug replay --follow` getting permanently stuck showing no further updates if the session file was truncated or recreated (e.g. after a disk issue, or by pointing `--follow` at a file another tool overwrites) — it now detects the file shrinking and resyncs from the new content instead of waiting forever past a stale byte offset.
+- Fixed a prototype pollution risk in `redact()`: a `--verbose` payload or logged data containing a `"__proto__"` key (valid, arbitrary JSON) would alter the prototype of the redacted object being built, since plain `{}` objects route `obj["__proto__"] = x` through the inherited setter. The internal object is now created with `Object.create(null)`, so `__proto__` becomes an ordinary own property instead. Impact was limited to the one object built by `redact()`, not the shared `Object.prototype`, but this closes the class of bug regardless.
+
 ## 1.6.10
 
 - `tsconfig.json` only included `src/`, so `bun run typecheck` never actually type-checked the test suite — a real type error in a test file would silently pass CI. Added `test/` to `include` and `@types/bun` (for `bun:test`, `import.meta.dir`, ...) so tests are now properly type-checked too. Verified with an injected type error before and after the fix.

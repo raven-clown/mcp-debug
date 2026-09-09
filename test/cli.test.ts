@@ -251,6 +251,41 @@ describe("mcp-debug replay", () => {
     // give Windows a moment to release its file handles on the temp dir
     await new Promise((r) => setTimeout(r, 200));
   });
+
+  test("--follow recovers after the session file is truncated or recreated", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "mcp-debug-test-"));
+    tempDirs.push(cwd);
+    const sessionDir = join(cwd, ".mcp-debug");
+    mkdirSync(sessionDir, { recursive: true });
+    const sessionFile = join(sessionDir, "session-1.jsonl");
+    writeFileSync(
+      sessionFile,
+      JSON.stringify({ time: "t1", channel: "log", level: "info", text: "a longer first line" }) + "\n",
+    );
+
+    const child = spawn("bun", [CLI, "replay", "--follow"], { cwd });
+    let stdout = "";
+    child.stdout.on("data", (d) => (stdout += d.toString()));
+
+    await new Promise((r) => setTimeout(r, 500));
+    expect(stdout).toContain("a longer first line");
+
+    // simulate the file being truncated/recreated with shorter content
+    writeFileSync(sessionFile, JSON.stringify({ time: "t2", channel: "log", level: "info", text: "short" }) + "\n");
+    await new Promise((r) => setTimeout(r, 500));
+    writeFileSync(
+      sessionFile,
+      JSON.stringify({ time: "t3", channel: "log", level: "info", text: "after-shrink" }) + "\n",
+      { flag: "a" },
+    );
+    await new Promise((r) => setTimeout(r, 800));
+    expect(stdout).toContain("after-shrink");
+
+    const exited = new Promise((r) => child.on("close", r));
+    child.kill();
+    await exited;
+    await new Promise((r) => setTimeout(r, 200));
+  });
 });
 
 describe("mcp-debug stats", () => {
