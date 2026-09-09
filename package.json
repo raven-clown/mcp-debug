@@ -1,5 +1,5 @@
 {
-  "name": "mcp-debug",
+  "name": "mcp-stdio-debug",
   "version": "0.1.0",
   "description": "Debug logging and protocol tracing for stdio-based MCP servers",
   "type": "module",
@@ -24,6 +24,10 @@
     "stdio"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/raven-clown/mcp-debug.git"
+  },
   "engines": {
     "node": ">=18"
   },

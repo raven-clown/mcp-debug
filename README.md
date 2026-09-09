@@ -20,7 +20,7 @@ your debug logs and a summary of each JSON-RPC message — goes to
 ## Install
 
 ```bash
-npm i mcp-debug
+npm i mcp-stdio-debug
 ```
 
 ## Usage
@@ -35,7 +35,7 @@ In your server code, swap `console.log` for the logger so output
 never touches `stdout`:
 
 ```ts
-import { debug, info, warn, error } from "mcp-debug";
+import { debug, info, warn, error } from "mcp-stdio-debug";
 
 info("server.start", { pid: process.pid });
 debug("request.received", { method: "ping" });
