@@ -1,6 +1,6 @@
 {
   "name": "mcp-stdio-debug",
-  "version": "1.6.9",
+  "version": "1.6.10",
   "description": "Debug logging and protocol tracing for stdio-based MCP servers",
   "type": "module",
   "bin": {
@@ -33,6 +33,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "@types/bun": "^1.4.2",
     "@types/node": "^22.10.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2"

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.10
+
+- `tsconfig.json` only included `src/`, so `bun run typecheck` never actually type-checked the test suite — a real type error in a test file would silently pass CI. Added `test/` to `include` and `@types/bun` (for `bun:test`, `import.meta.dir`, ...) so tests are now properly type-checked too. Verified with an injected type error before and after the fix.
+- Added a dependency vulnerability audit workflow (`npm audit`, scheduled weekly plus on push/PR). It already found one low-severity advisory in a transitive devDependency (`esbuild` via `tsup`) — not fixable within `tsup`'s current version range and not exploitable by our usage (we never run esbuild's dev server), so left as a known, tracked, non-blocking finding.
+
 ## 1.6.9
 
 - Fixed `mcp-debug doctor <command>` (forgetting `--`) silently ignoring the command and exiting 0 as if everything passed, instead of checking it. It now errors with a usage hint.
