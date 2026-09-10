@@ -231,7 +231,12 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
     // killing that wrapper alone leaves the real process running, so kill
     // the whole tree by pid instead
     if (process.platform === "win32" && child.pid) {
-      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
+      const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
+      // an unhandled "error" on a ChildProcess throws and crashes this
+      // process; if taskkill itself can't be spawned, fail quietly instead
+      killer.on("error", (err) => {
+        process.stderr.write(`mcp-debug: failed to run taskkill: ${err.message}\n`);
+      });
     } else {
       child.kill(sig);
     }

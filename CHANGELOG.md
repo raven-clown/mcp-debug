@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.15
+
+- Fixed a crash on Windows when Ctrl+C (or SIGTERM) triggers the `taskkill` tree-kill (1.6.2) and `taskkill` itself can't be spawned, for example on a minimal container image or a locked-down `PATH`. The spawned process had no `error` listener, and an unhandled `error` event on a `ChildProcess` throws and crashes the whole wrapper. It now logs the failure instead. Verified by reproducing the crash with a nonexistent binary name, then confirming the fix logs and survives instead of throwing.
+
 ## 1.6.14
 
 - `mcp-debug doctor`'s command-on-PATH check spawned `where`/`which` as an external process with a timeout as a safety net against it hanging (1.6.8). That timeout turned out to be necessary but not sufficient. On Windows CI runners, `where` was sometimes still slow enough to legitimately exceed it, turning a valid command into a false "not found." Replaced the external process entirely with a native `PATH`/`PATHEXT` lookup, so the check is a synchronous filesystem read with no process-spawn or timing risk left at all.
