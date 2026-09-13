@@ -107,6 +107,30 @@ Fields that look like secrets (`token`, `apiKey`, `password`,
 `data` passed to the logger (`debug("auth", { token })`), both on
 screen and in the session file, regardless of `--verbose`.
 
+### Session file management
+
+Session files live in `.mcp-debug/` by default, named
+`session-YYYY-MM-DD-00001.jsonl`, `session-YYYY-MM-DD-00002.jsonl`, and
+so on. By default at most 20 are kept; older ones are deleted as new
+runs start.
+
+```bash
+mcp-debug run --max-sessions=50 -- node server.js     # keep the 50 most recent session files
+mcp-debug run --max-age=7 -- node server.js           # also delete session files older than 7 days
+mcp-debug run --max-size=10MB -- node server.js       # rotate to a new file once one passes 10MB, instead of growing it forever
+mcp-debug run --session-dir=/var/log/mcp -- node server.js   # write session files somewhere else
+mcp-debug run --session-name=myserver -- node server.js      # use a custom filename prefix
+```
+
+Rotating on `--max-size` never stops logging: a run that produces a
+lot of traffic just ends up with several sequentially numbered files
+instead of one unbounded one.
+
+Each flag has an equivalent environment variable, which a flag
+overrides if both are set: `MCP_DEBUG_MAX_SESSIONS`,
+`MCP_DEBUG_MAX_AGE`, `MCP_DEBUG_MAX_SIZE`, `MCP_DEBUG_SESSION_DIR`,
+`MCP_DEBUG_SESSION_NAME`.
+
 ### Doctor
 
 Sanity-check the environment before you spend time debugging the

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.0
+
+- Added configurable session file management: `--max-sessions=<n>` (default 20, was previously fixed), `--max-age=<days>` to also delete session files older than a given age, `--max-size=<size>` (e.g. `10MB`) to rotate to a new file instead of growing one file forever, `--session-dir=<path>` to write session files somewhere other than `.mcp-debug/`, and `--session-name=<prefix>` for a custom filename prefix. Each flag also has an `MCP_DEBUG_*` environment variable equivalent. Session filenames changed from `session-<epoch-ms>.jsonl` to the more readable `session-YYYY-MM-DD-00001.jsonl`, with the trailing number incrementing on rotation instead of being reused.
+
 ## 1.6.17
 
 - The same crash fixed in 1.6.16 had a second, narrower opening: the initial file size read before `--follow` starts watching wasn't wrapped either, so a deletion landing in that specific window (while the initial replay is still printing existing lines, for a large session file) still crashed. Now covered too.

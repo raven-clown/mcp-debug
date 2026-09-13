@@ -4,7 +4,6 @@ import {
   accessSync,
   closeSync,
   constants,
-  createWriteStream,
   existsSync,
   mkdirSync,
   openSync,
@@ -15,14 +14,21 @@ import {
   unlinkSync,
   unwatchFile,
   watchFile,
-  type WriteStream,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { LineSplitter } from "./line-splitter.js";
 import { createPendingState, parseIncoming, parseOutgoing, SLOW_THRESHOLD_MS, type ProtocolMessage } from "./protocol.js";
 import { redact } from "./redact.js";
+import { extractDate, parseSessionFilename, SessionLog } from "./session-log.js";
+import { formatSize, parseSize } from "./size.js";
 import { computeStats, type SessionEntry } from "./stats.js";
 import { findOnPath } from "./which.js";
+
+/** Anything writeProtocolMessages/handleDebugLine need from a log sink;
+ * satisfied by both node's WriteStream and SessionLog. */
+interface LogWriter {
+  write(line: string): void;
+}
 
 const COLOR = {
   reset: "\x1b[0m",
@@ -36,11 +42,22 @@ const COLOR = {
 const LEVEL_ORDER = ["debug", "info", "warn", "error"];
 const MAX_SESSIONS = 20;
 
-function cleanupOldSessions(dir: string, keep: number): void {
+function cleanupOldSessions(dir: string, prefix: string, keep: number, maxAgeDays?: number): void {
   const files = readdirSync(dir)
-    .filter((f) => f.endsWith(".jsonl"))
+    .filter((f) => parseSessionFilename(f, prefix) !== null)
     .sort();
-  for (const f of files.slice(0, Math.max(0, files.length - keep))) {
+
+  const toDelete = new Set(files.slice(0, Math.max(0, files.length - keep)));
+
+  if (maxAgeDays !== undefined) {
+    const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+    for (const f of files) {
+      const ts = extractDate(f, prefix);
+      if (ts !== null && ts < cutoff) toDelete.add(f);
+    }
+  }
+
+  for (const f of toDelete) {
     try {
       unlinkSync(join(dir, f));
     } catch {
@@ -78,7 +95,7 @@ interface RunCounters {
   latencies: number[];
 }
 
-function writeProtocolMessages(messages: ProtocolMessage[], logStream: WriteStream, counters: RunCounters): void {
+function writeProtocolMessages(messages: ProtocolMessage[], logStream: LogWriter, counters: RunCounters): void {
   for (const msg of messages) {
     if (msg.direction === "request") counters.requests++;
     if (msg.direction === "notification") counters.notifications++;
@@ -136,12 +153,20 @@ function printUsage(): void {
       "  mcp-debug --help                          show this message",
       "",
       "Flags for run: --verbose  --level=debug|info|warn|error  --no-color",
+      "  --max-sessions=<n>     keep at most n session files (default 20)",
+      "  --max-age=<days>       also delete session files older than n days",
+      "  --max-size=<size>      rotate to a new file past this size, e.g. 10MB",
+      "  --session-dir=<path>   where to write session files (default .mcp-debug)",
+      "  --session-name=<name>  filename prefix for session files (default session)",
+      "",
+      "Each of the above can also be set via MCP_DEBUG_MAX_SESSIONS, MCP_DEBUG_MAX_AGE,",
+      "MCP_DEBUG_MAX_SIZE, MCP_DEBUG_SESSION_DIR, MCP_DEBUG_SESSION_NAME; a flag wins over its env var.",
       "",
     ].join("\n"),
   );
 }
 
-function handleDebugLine(line: string, logStream: WriteStream, minLevel: string | undefined): void {
+function handleDebugLine(line: string, logStream: LogWriter, minLevel: string | undefined): void {
   let text = line;
   let level = "log";
   try {
@@ -167,14 +192,86 @@ interface RunFlags {
   level?: string;
   verbose: boolean;
   noColor: boolean;
+  maxSessions: number;
+  maxAgeDays?: number;
+  maxSizeBytes?: number;
+  sessionDir?: string;
+  sessionName?: string;
+}
+
+/** A prefix becomes part of a filename joined onto sessionDir, so it must
+ * not contain path separators or ".." components (that would let
+ * --session-name or MCP_DEBUG_SESSION_NAME write outside sessionDir). */
+function isSafeSessionName(name: string): boolean {
+  return name.length > 0 && !/[\\/]/.test(name) && name !== "." && name !== "..";
 }
 
 function parseFlags(args: string[]): RunFlags {
-  const flags: RunFlags = { verbose: false, noColor: false };
+  const env = process.env;
+  const flags: RunFlags = {
+    verbose: false,
+    noColor: false,
+    maxSessions: MAX_SESSIONS,
+    sessionDir: env.MCP_DEBUG_SESSION_DIR,
+    sessionName: env.MCP_DEBUG_SESSION_NAME,
+  };
+
+  if (env.MCP_DEBUG_MAX_SESSIONS !== undefined) {
+    const n = Number(env.MCP_DEBUG_MAX_SESSIONS);
+    if (Number.isInteger(n) && n >= 1) flags.maxSessions = n;
+  }
+  if (env.MCP_DEBUG_MAX_AGE !== undefined) {
+    const n = Number(env.MCP_DEBUG_MAX_AGE);
+    if (Number.isFinite(n) && n > 0) flags.maxAgeDays = n;
+  }
+  if (env.MCP_DEBUG_MAX_SIZE !== undefined) {
+    const bytes = parseSize(env.MCP_DEBUG_MAX_SIZE);
+    if (bytes !== null && bytes > 0) flags.maxSizeBytes = bytes;
+  }
+  if (flags.sessionName !== undefined && !isSafeSessionName(flags.sessionName)) {
+    process.stderr.write(`mcp-debug: MCP_DEBUG_SESSION_NAME must not contain path separators, got "${flags.sessionName}"\n`);
+    process.exit(1);
+  }
+
   for (const a of args) {
-    if (a.startsWith("--level=")) flags.level = a.slice("--level=".length);
-    else if (a === "--verbose") flags.verbose = true;
-    else if (a === "--no-color") flags.noColor = true;
+    if (a.startsWith("--level=")) {
+      flags.level = a.slice("--level=".length);
+    } else if (a === "--verbose") {
+      flags.verbose = true;
+    } else if (a === "--no-color") {
+      flags.noColor = true;
+    } else if (a.startsWith("--max-sessions=")) {
+      const n = Number(a.slice("--max-sessions=".length));
+      if (!Number.isInteger(n) || n < 1) {
+        process.stderr.write(`mcp-debug: --max-sessions must be a positive integer, got "${a.slice("--max-sessions=".length)}"\n`);
+        process.exit(1);
+      }
+      flags.maxSessions = n;
+    } else if (a.startsWith("--max-age=")) {
+      const n = Number(a.slice("--max-age=".length));
+      if (!Number.isFinite(n) || n <= 0) {
+        process.stderr.write(`mcp-debug: --max-age must be a positive number of days, got "${a.slice("--max-age=".length)}"\n`);
+        process.exit(1);
+      }
+      flags.maxAgeDays = n;
+    } else if (a.startsWith("--max-size=")) {
+      const raw = a.slice("--max-size=".length);
+      const bytes = parseSize(raw);
+      if (bytes === null || bytes <= 0) {
+        process.stderr.write(`mcp-debug: --max-size must look like "10MB", "500KB", "1GB", got "${raw}"\n`);
+        process.exit(1);
+      }
+      flags.maxSizeBytes = bytes;
+    } else if (a.startsWith("--session-dir=")) {
+      flags.sessionDir = a.slice("--session-dir=".length);
+    } else if (a.startsWith("--session-name=")) {
+      const name = a.slice("--session-name=".length);
+      if (!isSafeSessionName(name)) {
+        process.stderr.write(`mcp-debug: --session-name must not contain path separators, got "${name}"\n`);
+        process.exit(1);
+      }
+      flags.sessionName = name;
+    }
   }
   return flags;
 }
@@ -182,15 +279,20 @@ function parseFlags(args: string[]): RunFlags {
 function run(target: string, targetArgs: string[], flags: RunFlags): void {
   useColor = !flags.noColor && !!process.stderr.isTTY;
 
-  const sessionDir = join(process.cwd(), ".mcp-debug");
+  const sessionDir = resolve(process.cwd(), flags.sessionDir ?? ".mcp-debug");
+  const sessionName = flags.sessionName ?? "session";
   mkdirSync(sessionDir, { recursive: true });
   // clean up before creating this run's file: createWriteStream opens
   // asynchronously, so a cleanup after it would race and miss the new file
-  cleanupOldSessions(sessionDir, MAX_SESSIONS - 1);
-  const logPath = join(sessionDir, `session-${Date.now()}.jsonl`);
-  const logStream = createWriteStream(logPath, { flags: "a" });
-  logStream.on("error", (err) => {
-    process.stderr.write(`mcp-debug: log file write failed: ${err.message}\n`);
+  cleanupOldSessions(sessionDir, sessionName, flags.maxSessions - 1, flags.maxAgeDays);
+  const logStream = new SessionLog({
+    dir: sessionDir,
+    prefix: sessionName,
+    maxSizeBytes: flags.maxSizeBytes,
+    onRotate: () => cleanupOldSessions(sessionDir, sessionName, flags.maxSessions, flags.maxAgeDays),
+    onError: (err) => {
+      process.stderr.write(`mcp-debug: log file write failed: ${err.message}\n`);
+    },
   });
 
   const child = spawn(target, targetArgs, {
@@ -262,11 +364,16 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
   });
 }
 
+// matches "<any-prefix>-YYYY-MM-DD-00001.jsonl" regardless of which
+// --session-name/MCP_DEBUG_SESSION_NAME prefix produced it, so replay/stats
+// can find the latest session without knowing the prefix run() used
+const ANY_SESSION_FILE = /-\d{4}-\d{2}-\d{2}-\d{5}\.jsonl$/;
+
 function findLatestSession(): string | undefined {
-  const dir = join(process.cwd(), ".mcp-debug");
+  const dir = resolve(process.cwd(), process.env.MCP_DEBUG_SESSION_DIR ?? ".mcp-debug");
   if (!existsSync(dir)) return undefined;
   const files = readdirSync(dir)
-    .filter((f) => f.endsWith(".jsonl"))
+    .filter((f) => ANY_SESSION_FILE.test(f))
     .sort();
   return files.length > 0 ? join(dir, files[files.length - 1]) : undefined;
 }

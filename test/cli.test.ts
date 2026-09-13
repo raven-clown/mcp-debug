@@ -195,7 +195,7 @@ describe("mcp-debug run", () => {
     const sessionDir = join(cwd, ".mcp-debug");
     mkdirSync(sessionDir, { recursive: true });
     for (let i = 0; i < 25; i++) {
-      writeFileSync(join(sessionDir, `session-${String(i).padStart(3, "0")}.jsonl`), "{}\n");
+      writeFileSync(join(sessionDir, `session-2026-01-01-${String(i).padStart(5, "0")}.jsonl`), "{}\n");
     }
 
     const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
@@ -250,7 +250,7 @@ describe("mcp-debug replay", () => {
     tempDirs.push(cwd);
     const sessionDir = join(cwd, ".mcp-debug");
     mkdirSync(sessionDir, { recursive: true });
-    const sessionFile = join(sessionDir, "session-1.jsonl");
+    const sessionFile = join(sessionDir, "session-2026-01-01-00001.jsonl");
     writeFileSync(sessionFile, JSON.stringify({ time: "t1", channel: "log", level: "info", text: "first" }) + "\n");
 
     const child = spawn("bun", [CLI, "replay", "--follow"], { cwd });
@@ -281,7 +281,7 @@ describe("mcp-debug replay", () => {
     tempDirs.push(cwd);
     const sessionDir = join(cwd, ".mcp-debug");
     mkdirSync(sessionDir, { recursive: true });
-    const sessionFile = join(sessionDir, "session-1.jsonl");
+    const sessionFile = join(sessionDir, "session-2026-01-01-00001.jsonl");
     writeFileSync(
       sessionFile,
       JSON.stringify({ time: "t1", channel: "log", level: "info", text: "a longer first line" }) + "\n",
@@ -317,7 +317,7 @@ describe("mcp-debug replay", () => {
     tempDirs.push(cwd);
     const sessionDir = join(cwd, ".mcp-debug");
     mkdirSync(sessionDir, { recursive: true });
-    const sessionFile = join(sessionDir, "session-1.jsonl");
+    const sessionFile = join(sessionDir, "session-2026-01-01-00001.jsonl");
     writeFileSync(sessionFile, JSON.stringify({ time: "t1", channel: "log", level: "info", text: "first" }) + "\n");
 
     const child = spawn("bun", [CLI, "replay", "--follow"], { cwd });
