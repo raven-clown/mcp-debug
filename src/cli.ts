@@ -13,6 +13,7 @@ import {
   readSync,
   statSync,
   unlinkSync,
+  unwatchFile,
   watchFile,
   type WriteStream,
 } from "node:fs";
@@ -329,17 +330,25 @@ function replay(path: string | undefined, noColor: boolean, follow: boolean): vo
 
   let position = statSync(sessionPath).size;
   watchFile(sessionPath, { interval: 300 }, () => {
-    const size = statSync(sessionPath).size;
-    // the file was truncated or recreated (e.g. a new run started): resync
-    // from the start instead of getting permanently stuck past its new size
-    if (size < position) position = 0;
-    if (size <= position) return;
-    const fd = openSync(sessionPath, "r");
-    const buf = Buffer.alloc(size - position);
-    readSync(fd, buf, 0, buf.length, position);
-    closeSync(fd);
-    position = size;
-    for (const line of buf.toString("utf8").split("\n")) printSessionLine(line);
+    // the file can disappear out from under us (another run's session
+    // cleanup, or it's just gone); an fs error here must not crash the
+    // process, so the whole read is wrapped rather than just the stat
+    try {
+      const size = statSync(sessionPath).size;
+      // the file was truncated or recreated (e.g. a new run started):
+      // resync from the start instead of getting stuck past its new size
+      if (size < position) position = 0;
+      if (size <= position) return;
+      const fd = openSync(sessionPath, "r");
+      const buf = Buffer.alloc(size - position);
+      readSync(fd, buf, 0, buf.length, position);
+      closeSync(fd);
+      position = size;
+      for (const line of buf.toString("utf8").split("\n")) printSessionLine(line);
+    } catch (err) {
+      process.stderr.write(`mcp-debug: stopped following "${sessionPath}": ${(err as Error).message}\n`);
+      unwatchFile(sessionPath);
+    }
   });
 }
 

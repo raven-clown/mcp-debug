@@ -311,6 +311,31 @@ describe("mcp-debug replay", () => {
     await exited;
     await new Promise((r) => setTimeout(r, 200));
   });
+
+  test("--follow exits cleanly instead of crashing when the session file is deleted", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "mcp-debug-test-"));
+    tempDirs.push(cwd);
+    const sessionDir = join(cwd, ".mcp-debug");
+    mkdirSync(sessionDir, { recursive: true });
+    const sessionFile = join(sessionDir, "session-1.jsonl");
+    writeFileSync(sessionFile, JSON.stringify({ time: "t1", channel: "log", level: "info", text: "first" }) + "\n");
+
+    const child = spawn("bun", [CLI, "replay", "--follow"], { cwd });
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d.toString()));
+
+    await new Promise((r) => setTimeout(r, 500));
+    rmSync(sessionFile);
+
+    const closed = new Promise<number | null>((r) => child.on("close", r));
+    const code = await Promise.race([closed, new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 3000))]);
+
+    expect(code).not.toBe("timeout");
+    expect(stderr).toContain("stopped following");
+    expect(stderr).not.toContain("at StatWatcher");
+
+    if (code === "timeout") child.kill();
+  });
 });
 
 describe("mcp-debug stats", () => {

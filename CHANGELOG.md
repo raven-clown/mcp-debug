@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.16
+
+- Fixed `mcp-debug replay --follow` crashing with an uncaught `ENOENT` exception if the session file it's watching gets deleted, for example by another `run`'s automatic session cleanup (1.6.0) evicting it once the 20-file cap is hit. It now prints a clear message and exits instead. Reproduced by starting `--follow`, deleting the file it's watching mid-session, and confirming the crash, then confirming the fix.
+
 ## 1.6.15
 
 - Fixed a crash on Windows when Ctrl+C (or SIGTERM) triggers the `taskkill` tree-kill (1.6.2) and `taskkill` itself can't be spawned, for example on a minimal container image or a locked-down `PATH`. The spawned process had no `error` listener, and an unhandled `error` event on a `ChildProcess` throws and crashes the whole wrapper. It now logs the failure instead. Verified by reproducing the crash with a nonexistent binary name, then confirming the fix logs and survives instead of throwing.
