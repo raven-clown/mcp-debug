@@ -68,16 +68,8 @@ function nextSeqForDate(dir: string, prefix: string, date: string): number {
 }
 
 /** Opens the first free "<prefix>-<date>-NNNNN.jsonl" at or after startSeq.
- * Uses the "ax" open flag so file creation itself is the collision check
- * (fails atomically with EEXIST if the name is taken) rather than an
- * existsSync() check followed by a separate open. That distinction
- * matters here: a plain check-then-open has a gap where another writer
- * can create the file in between the two calls - either a second
- * mcp-debug process sharing the same session directory and prefix, or
- * (before this fix) this same process rotating across a date boundary
- * into a date another process already started logging to. Either way,
- * the loser would silently start appending into the winner's file
- * instead of getting its own, interleaving two unrelated sessions. */
+ * Uses "ax" (atomic create, fails if it exists) so two writers racing on
+ * the same name can never both open it - one just gets the next number. */
 function openUniqueSession(dir: string, prefix: string, date: string, startSeq: number): { seq: number; path: string; fd: number } {
   let seq = startSeq;
   for (;;) {
@@ -129,11 +121,7 @@ export class SessionLog {
     const bytes = Buffer.byteLength(line, "utf8");
     const cap = this.options.maxSizeBytes;
     if (cap !== undefined && this.bytesWritten > 0 && this.bytesWritten + bytes > cap) {
-      // a logging call must never crash its caller: opening the next file
-      // (openSync, in rotate()) can throw for reasons other than the
-      // EEXIST it already retries on - disk full, permission changes
-      // mid-run, too many open files - so a failed rotation falls back to
-      // the current file instead of taking down the whole process
+      // never let a failed rotation (disk full, etc.) crash the caller
       try {
         this.rotate();
       } catch (err) {
@@ -147,10 +135,7 @@ export class SessionLog {
   private rotate(): void {
     const today = formatDate(this.now());
     const startSeq = today !== this.date ? nextSeqForDate(this.options.dir, this.prefix, today) : this.seq + 1;
-    // open the new file before touching the old stream: if this throws,
-    // the caller's catch leaves the current (still-open, still-working)
-    // stream in place instead of having already ended it for a
-    // replacement that never arrived
+    // open the new file before ending the old one, so a failure here leaves the current file usable
     const opened = openUniqueSession(this.options.dir, this.prefix, today, startSeq);
     const oldStream = this.stream;
     this.date = today;

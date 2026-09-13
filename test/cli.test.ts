@@ -285,6 +285,25 @@ describe("mcp-debug run", () => {
     const topicDirs = readdirSync(sessionDir, { withFileTypes: true }).filter((e) => e.isDirectory());
     expect(topicDirs.length).toBe(50);
   });
+
+  test("treats topics differing only in case as the same topic", async () => {
+    const result = await run(["run", "--", "node", join(FIXTURES, "topic-case-server.js")]);
+    tempDirs.push(result.cwd);
+
+    const sessionDir = join(result.cwd, ".mcp-debug");
+    // on a case-insensitive filesystem "API" and "api" are the same
+    // directory regardless of what the code thinks, so it must not treat
+    // them as two logically separate topics that happen to collide
+    const topicDirs = readdirSync(sessionDir, { withFileTypes: true }).filter((e) => e.isDirectory());
+    expect(topicDirs.length).toBe(1);
+    expect(topicDirs[0].name).toBe("api");
+
+    const files = readdirSync(join(sessionDir, "api"));
+    expect(files.length).toBe(1);
+    const content = readFileSync(join(sessionDir, "api", files[0]), "utf8");
+    expect(content).toContain("upper");
+    expect(content).toContain("lower");
+  });
 });
 
 describe("mcp-debug replay", () => {
