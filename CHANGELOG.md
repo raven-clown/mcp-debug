@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.17
+
+- The same crash fixed in 1.6.16 had a second, narrower opening: the initial file size read before `--follow` starts watching wasn't wrapped either, so a deletion landing in that specific window (while the initial replay is still printing existing lines, for a large session file) still crashed. Now covered too.
+
 ## 1.6.16
 
 - Fixed `mcp-debug replay --follow` crashing with an uncaught `ENOENT` exception if the session file it's watching gets deleted, for example by another `run`'s automatic session cleanup (1.6.0) evicting it once the 20-file cap is hit. It now prints a clear message and exits instead. Reproduced by starting `--follow`, deleting the file it's watching mid-session, and confirming the crash, then confirming the fix.

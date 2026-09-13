@@ -328,7 +328,13 @@ function replay(path: string | undefined, noColor: boolean, follow: boolean): vo
 
   if (!follow) return;
 
-  let position = statSync(sessionPath).size;
+  let position: number;
+  try {
+    position = statSync(sessionPath).size;
+  } catch (err) {
+    process.stderr.write(`mcp-debug: could not follow "${sessionPath}": ${(err as Error).message}\n`);
+    process.exit(1);
+  }
   watchFile(sessionPath, { interval: 300 }, () => {
     // the file can disappear out from under us (another run's session
     // cleanup, or it's just gone); an fs error here must not crash the
