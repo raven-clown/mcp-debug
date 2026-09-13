@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.1
+
+- Fixed a data corruption bug in session file rotation: when a long-running `mcp-debug run` process rotated across a midnight date boundary, it reused rotation number 00001 for the new date without checking whether a file with that name already existed, for example one created by a second `mcp-debug run` process sharing the same `--session-dir`/`--session-name`. It would then silently start appending into that other process's file instead of creating its own, interleaving two unrelated sessions in one file. Reproduced with a controllable clock (forcing the date to roll over mid-run while a colliding file exists) and confirmed the corruption, then fixed by switching file creation to the atomic `ax` open flag (fails immediately if the name is taken) instead of a separate existence check beforehand, which closes the same gap for any two writers racing on the same filename, not just this one date-rollover case.
+
 ## 1.8.0
 
 - `debug`/`info`/`warn`/`error` (from the `mcp-stdio-debug` library) now take an optional topic argument that routes that entry to its own session file, e.g. `info("request", data, "api")`, under a subfolder created automatically per topic (or wherever `MCP_DEBUG_TOPIC_DIR_<TOPIC>` points), separate from the main session log.

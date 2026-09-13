@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, readdirSync, type WriteStream } from "node:fs";
+import { createWriteStream, openSync, readdirSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
 
 export interface SessionLogOptions {
@@ -7,6 +7,8 @@ export interface SessionLogOptions {
   maxSizeBytes?: number;
   onRotate?: (newPath: string) => void;
   onError?: (err: Error) => void;
+  /** Injectable clock, for tests that need to force a date rollover. */
+  now?: () => Date;
 }
 
 function pad(n: number, len = 2): string {
@@ -65,39 +67,60 @@ function nextSeqForDate(dir: string, prefix: string, date: string): number {
   return max + 1;
 }
 
+/** Opens the first free "<prefix>-<date>-NNNNN.jsonl" at or after startSeq.
+ * Uses the "ax" open flag so file creation itself is the collision check
+ * (fails atomically with EEXIST if the name is taken) rather than an
+ * existsSync() check followed by a separate open. That distinction
+ * matters here: a plain check-then-open has a gap where another writer
+ * can create the file in between the two calls - either a second
+ * mcp-debug process sharing the same session directory and prefix, or
+ * (before this fix) this same process rotating across a date boundary
+ * into a date another process already started logging to. Either way,
+ * the loser would silently start appending into the winner's file
+ * instead of getting its own, interleaving two unrelated sessions. */
+function openUniqueSession(dir: string, prefix: string, date: string, startSeq: number): { seq: number; path: string; fd: number } {
+  let seq = startSeq;
+  for (;;) {
+    const path = join(dir, `${prefix}-${date}-${pad(seq, SEQ_WIDTH)}.jsonl`);
+    try {
+      const fd = openSync(path, "ax");
+      return { seq, path, fd };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+        seq++;
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 /** Writes session log lines to a file, rotating to a new file once the
  * current one passes maxSizeBytes instead of growing it unbounded.
  * Rotated files are named "<prefix>-YYYY-MM-DD-00001.jsonl",
- * "...-00002.jsonl", and so on: the sequence number is tracked in memory,
- * so rotation never has to ask the filesystem whether a name is free
- * (fs.createWriteStream() doesn't create the file synchronously, so that
- * check would be unreliable for rotations happening close together). */
+ * "...-00002.jsonl", and so on. */
 export class SessionLog {
   private stream: WriteStream;
   private bytesWritten = 0;
   private prefix: string;
+  private now: () => Date;
   private date: string;
   private seq: number;
   path: string;
 
   constructor(private options: SessionLogOptions) {
     this.prefix = options.prefix ?? "session";
-    this.date = formatDate(new Date());
-    this.seq = nextSeqForDate(options.dir, this.prefix, this.date);
-    this.path = this.buildPath();
-    while (existsSync(this.path)) {
-      this.seq++;
-      this.path = this.buildPath();
-    }
-    this.stream = this.openStream(this.path);
+    this.now = options.now ?? (() => new Date());
+    this.date = formatDate(this.now());
+    const startSeq = nextSeqForDate(options.dir, this.prefix, this.date);
+    const opened = openUniqueSession(options.dir, this.prefix, this.date, startSeq);
+    this.seq = opened.seq;
+    this.path = opened.path;
+    this.stream = this.wrapStream(opened.fd);
   }
 
-  private buildPath(): string {
-    return join(this.options.dir, `${this.prefix}-${this.date}-${pad(this.seq, SEQ_WIDTH)}.jsonl`);
-  }
-
-  private openStream(path: string): WriteStream {
-    const stream = createWriteStream(path, { flags: "a" });
+  private wrapStream(fd: number): WriteStream {
+    const stream = createWriteStream("", { fd });
     stream.on("error", (err) => this.options.onError?.(err));
     return stream;
   }
@@ -114,15 +137,13 @@ export class SessionLog {
 
   private rotate(): void {
     this.stream.end();
-    const today = formatDate(new Date());
-    if (today !== this.date) {
-      this.date = today;
-      this.seq = 1;
-    } else {
-      this.seq++;
-    }
-    this.path = this.buildPath();
-    this.stream = this.openStream(this.path);
+    const today = formatDate(this.now());
+    const startSeq = today !== this.date ? nextSeqForDate(this.options.dir, this.prefix, today) : this.seq + 1;
+    const opened = openUniqueSession(this.options.dir, this.prefix, today, startSeq);
+    this.date = today;
+    this.seq = opened.seq;
+    this.path = opened.path;
+    this.stream = this.wrapStream(opened.fd);
     this.bytesWritten = 0;
     this.options.onRotate?.(this.path);
   }

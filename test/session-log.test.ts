@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractDate, formatDate, parseSessionFilename, SessionLog } from "../src/session-log";
@@ -147,6 +147,43 @@ describe("SessionLog", () => {
       expect(second.path).not.toBe(first.path);
       const files = readdirSync(dir);
       expect(files.length).toBe(2);
+    });
+  });
+
+  test("does not collide with a same-day file another process already created", async () => {
+    await withTempDir(async (dir) => {
+      // simulate a second process that already claimed 00001 for today
+      writeFileSync(join(dir, `session-${formatDate(new Date())}-00001.jsonl`), "other process\n");
+
+      const log = new SessionLog({ dir });
+      expect(log.path).not.toContain("00001.jsonl");
+      log.write("x\n");
+      log.end();
+      await waitTick();
+
+      expect(readFileSync(join(dir, `session-${formatDate(new Date())}-00001.jsonl`), "utf8")).toBe("other process\n");
+    });
+  });
+
+  test("does not append into another process's file when rotation crosses midnight", async () => {
+    await withTempDir(async (dir) => {
+      let now = new Date(2026, 0, 1, 23, 59, 0);
+      const log = new SessionLog({ dir, maxSizeBytes: 5, now: () => now });
+      log.write("first\n"); // establishes bytesWritten > 0 so the next write can rotate
+
+      // another process starts logging for the new day before we rotate into it
+      const tomorrow = "2026-01-02";
+      const tomorrowsFirstFile = join(dir, `session-${tomorrow}-00001.jsonl`);
+      writeFileSync(tomorrowsFirstFile, "other process\n");
+
+      now = new Date(2026, 0, 2, 0, 5, 0);
+      log.write("aaaaaa\n"); // crosses the date boundary and rotates
+      expect(log.path).not.toBe(tomorrowsFirstFile);
+      log.end();
+      await waitTick();
+
+      expect(readFileSync(tomorrowsFirstFile, "utf8")).toBe("other process\n");
+      expect(readFileSync(log.path, "utf8")).toBe("aaaaaa\n");
     });
   });
 });
