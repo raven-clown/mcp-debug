@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -202,6 +202,49 @@ describe("mcp-debug run", () => {
     await run(["run", "--", "node", join(FIXTURES, "echo-server.js")], request, cwd);
 
     expect(readdirSync(sessionDir).length).toBe(20);
+  });
+
+  test("routes topic-tagged log calls to their own file under a subfolder", async () => {
+    const result = await run(["run", "--", "node", join(FIXTURES, "topic-server.js")]);
+    tempDirs.push(result.cwd);
+
+    const sessionDir = join(result.cwd, ".mcp-debug");
+    const mainFiles = readdirSync(sessionDir).filter((f) => f.endsWith(".jsonl"));
+    expect(mainFiles.length).toBe(1);
+    const mainContent = readFileSync(join(sessionDir, mainFiles[0]), "utf8");
+    expect(mainContent).toContain("no-topic message");
+    expect(mainContent).not.toContain("api call");
+    expect(mainContent).not.toContain("chat message");
+
+    const apiFiles = readdirSync(join(sessionDir, "api"));
+    expect(apiFiles.length).toBe(1);
+    const apiContent = readFileSync(join(sessionDir, "api", apiFiles[0]), "utf8");
+    expect(apiContent).toContain("api call");
+    expect(apiContent).toContain("127.0.0.1");
+
+    const chatFiles = readdirSync(join(sessionDir, "chat"));
+    expect(chatFiles.length).toBe(1);
+    const chatContent = readFileSync(join(sessionDir, "chat", chatFiles[0]), "utf8");
+    expect(chatContent).toContain("chat message");
+  });
+
+  test("honors MCP_DEBUG_TOPIC_DIR_<TOPIC> to redirect a topic elsewhere", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "mcp-debug-test-"));
+    tempDirs.push(cwd);
+    const externalDir = mkdtempSync(join(tmpdir(), "mcp-debug-topic-elsewhere-"));
+    tempDirs.push(externalDir);
+
+    const child = spawn("bun", [CLI, "run", "--", "node", join(FIXTURES, "topic-server.js")], {
+      cwd,
+      env: { ...process.env, MCP_DEBUG_TOPIC_DIR_API: externalDir },
+    });
+    await new Promise((r) => child.on("close", r));
+
+    const sessionDir = join(cwd, ".mcp-debug");
+    expect(existsSync(join(sessionDir, "api"))).toBe(false);
+    const externalFiles = readdirSync(externalDir);
+    expect(externalFiles.length).toBe(1);
+    expect(readFileSync(join(externalDir, externalFiles[0]), "utf8")).toContain("api call");
   });
 });
 

@@ -41,6 +41,23 @@ const COLOR = {
 
 const LEVEL_ORDER = ["debug", "info", "warn", "error"];
 const MAX_SESSIONS = 20;
+const MAX_TOPIC_NAME_LENGTH = 64;
+
+/** A topic (from debug/info/warn/error's optional topic argument in
+ * index.ts) becomes a directory name and part of an env var name, so it's
+ * sanitized rather than trusted: a compromised or careless MCP server
+ * could otherwise pass something like "../../etc" as a topic. */
+function sanitizeTopicName(topic: string): string {
+  return topic.slice(0, MAX_TOPIC_NAME_LENGTH).replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+/** Where a topic's session files live: MCP_DEBUG_TOPIC_DIR_<TOPIC> if set,
+ * otherwise a subdirectory of the main session dir named after the topic. */
+function topicDir(sessionDir: string, safeTopic: string): string {
+  const envKey = `MCP_DEBUG_TOPIC_DIR_${safeTopic.toUpperCase()}`;
+  const override = process.env[envKey];
+  return override ? resolve(process.cwd(), override) : join(sessionDir, safeTopic);
+}
 
 function cleanupOldSessions(dir: string, prefix: string, keep: number, maxAgeDays?: number): void {
   const files = readdirSync(dir)
@@ -162,17 +179,23 @@ function printUsage(): void {
       "Each of the above can also be set via MCP_DEBUG_MAX_SESSIONS, MCP_DEBUG_MAX_AGE,",
       "MCP_DEBUG_MAX_SIZE, MCP_DEBUG_SESSION_DIR, MCP_DEBUG_SESSION_NAME; a flag wins over its env var.",
       "",
+      "debug/info/warn/error calls (from the mcp-stdio-debug library) that pass a topic",
+      "are written to their own session file under <session-dir>/<topic>/, or wherever",
+      "MCP_DEBUG_TOPIC_DIR_<TOPIC> points, instead of the main one.",
+      "",
     ].join("\n"),
   );
 }
 
-function handleDebugLine(line: string, logStream: LogWriter, minLevel: string | undefined): void {
+function handleDebugLine(line: string, resolveLog: (topic?: string) => LogWriter, minLevel: string | undefined): void {
   let text = line;
   let level = "log";
+  let topic: string | undefined;
   try {
     const parsed = JSON.parse(line);
     if (parsed && typeof parsed === "object" && "level" in parsed) {
       level = String(parsed.level);
+      if (typeof parsed.topic === "string" && parsed.topic.length > 0) topic = parsed.topic;
       text = [parsed.label, parsed.data !== undefined ? JSON.stringify(redact(parsed.data)) : ""]
         .filter(Boolean)
         .join(" ");
@@ -181,11 +204,12 @@ function handleDebugLine(line: string, logStream: LogWriter, minLevel: string | 
     // not a structured entry, print the raw line as-is
   }
   const time = new Date().toISOString();
-  logStream.write(JSON.stringify({ time, channel: "log", level, text }) + "\n");
+  resolveLog(topic).write(JSON.stringify({ time, channel: "log", level, text }) + "\n");
 
   if (!levelAllowed(minLevel, level)) return;
+  const tag = topic ? `[${level}:${topic}]` : `[${level}]`;
   const color = level === "error" ? COLOR.red : level === "warn" ? COLOR.yellow : COLOR.gray;
-  process.stderr.write(`${paint(color, `${time} [${level}]`)} ${text}\n`);
+  process.stderr.write(`${paint(color, `${time} ${tag}`)} ${text}\n`);
 }
 
 interface RunFlags {
@@ -295,6 +319,31 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
     },
   });
 
+  // debug/info/warn/error calls that pass a topic (index.ts) get routed to
+  // their own session file, created lazily on first use of that topic
+  const topicLogs = new Map<string, SessionLog>();
+  const getTopicLog = (topic?: string): LogWriter => {
+    if (!topic) return logStream;
+    const safeTopic = sanitizeTopicName(topic);
+    let log = topicLogs.get(safeTopic);
+    if (!log) {
+      const dir = topicDir(sessionDir, safeTopic);
+      mkdirSync(dir, { recursive: true });
+      cleanupOldSessions(dir, sessionName, flags.maxSessions - 1, flags.maxAgeDays);
+      log = new SessionLog({
+        dir,
+        prefix: sessionName,
+        maxSizeBytes: flags.maxSizeBytes,
+        onRotate: () => cleanupOldSessions(dir, sessionName, flags.maxSessions, flags.maxAgeDays),
+        onError: (err) => {
+          process.stderr.write(`mcp-debug: log file write failed for topic "${topic}": ${err.message}\n`);
+        },
+      });
+      topicLogs.set(safeTopic, log);
+    }
+    return log;
+  };
+
   const child = spawn(target, targetArgs, {
     stdio: ["pipe", "pipe", "pipe"],
     shell: process.platform === "win32",
@@ -325,7 +374,7 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
   child.stdout.on("data", (chunk: Buffer) => stdoutSplitter.push(chunk));
   child.stdout.on("close", () => stdoutSplitter.flush());
 
-  const stderrSplitter = new LineSplitter((line) => handleDebugLine(line, logStream, flags.level));
+  const stderrSplitter = new LineSplitter((line) => handleDebugLine(line, getTopicLog, flags.level));
   child.stderr.on("data", (chunk: Buffer) => stderrSplitter.push(chunk));
   child.stderr.on("close", () => stderrSplitter.flush());
 
@@ -361,6 +410,7 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
     process.exitCode = code ?? (signal ? 1 : 0);
     printSummary(counters);
     logStream.end();
+    for (const log of topicLogs.values()) log.end();
   });
 }
 

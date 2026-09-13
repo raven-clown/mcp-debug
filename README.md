@@ -63,14 +63,15 @@ A one-line summary prints when the server exits:
 mcp-debug summary: 1 requests, 1 responses, avg 55ms, slowest 55ms
 ```
 
-Each run writes a session file to `.mcp-debug/session-<time>.jsonl`
-with every log line and protocol message, in order.
+Each run writes a session file to
+`.mcp-debug/session-YYYY-MM-DD-00001.jsonl` with every log line and
+protocol message, in order.
 
 Replay a saved session later. Defaults to the most recent one:
 
 ```bash
 mcp-debug replay
-mcp-debug replay .mcp-debug/session-1234567890.jsonl
+mcp-debug replay .mcp-debug/session-2026-01-01-00001.jsonl
 mcp-debug replay --follow   # keep printing new lines as another run appends them
 ```
 
@@ -130,6 +131,26 @@ Each flag has an equivalent environment variable, which a flag
 overrides if both are set: `MCP_DEBUG_MAX_SESSIONS`,
 `MCP_DEBUG_MAX_AGE`, `MCP_DEBUG_MAX_SIZE`, `MCP_DEBUG_SESSION_DIR`,
 `MCP_DEBUG_SESSION_NAME`.
+
+### Topics: splitting logs into separate files
+
+`debug`/`info`/`warn`/`error` take an optional third argument to
+route that entry to its own session file instead of the main one,
+for example to keep an `api` log and a `chat` log apart:
+
+```ts
+import { info } from "mcp-stdio-debug";
+
+info("request", { ip: "203.0.113.4" }, "api");
+info("message", { text: "hi" }, "chat");
+```
+
+By default each topic gets its own subfolder under the session
+directory (`.mcp-debug/api/`, `.mcp-debug/chat/`), created
+automatically, with the same rotation and retention rules as the
+main log. To send a topic's files somewhere else entirely, set
+`MCP_DEBUG_TOPIC_DIR_<TOPIC>` (uppercased), for example
+`MCP_DEBUG_TOPIC_DIR_API=/var/log/myserver/api`.
 
 ### Doctor
 

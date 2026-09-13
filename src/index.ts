@@ -5,6 +5,7 @@ export interface LogEntry {
   level: LogLevel;
   label: string;
   data?: unknown;
+  topic?: string;
 }
 
 // a logging call must never throw and crash the caller's server, so
@@ -28,12 +29,15 @@ function safeStringify(value: unknown): string {
 
 // stdout carries the JSON-RPC transport for stdio MCP servers, so every
 // log line here goes to stderr instead, where the mcp-debug CLI picks it up.
-function write(level: LogLevel, label: string, data?: unknown): void {
-  const entry: LogEntry = { time: new Date().toISOString(), level, label, data };
+function write(level: LogLevel, label: string, data?: unknown, topic?: string): void {
+  const entry: LogEntry = { time: new Date().toISOString(), level, label, data, topic };
   process.stderr.write(safeStringify(entry) + "\n");
 }
 
-export const debug = (label: string, data?: unknown): void => write("debug", label, data);
-export const info = (label: string, data?: unknown): void => write("info", label, data);
-export const warn = (label: string, data?: unknown): void => write("warn", label, data);
-export const error = (label: string, data?: unknown): void => write("error", label, data);
+// a topic routes this entry to its own session file under the mcp-debug
+// CLI's session directory (e.g. "api", "chat") instead of the main one -
+// see --session-dir / MCP_DEBUG_TOPIC_DIR_<TOPIC> in the README.
+export const debug = (label: string, data?: unknown, topic?: string): void => write("debug", label, data, topic);
+export const info = (label: string, data?: unknown, topic?: string): void => write("info", label, data, topic);
+export const warn = (label: string, data?: unknown, topic?: string): void => write("warn", label, data, topic);
+export const error = (label: string, data?: unknown, topic?: string): void => write("error", label, data, topic);
