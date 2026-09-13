@@ -246,6 +246,45 @@ describe("mcp-debug run", () => {
     expect(externalFiles.length).toBe(1);
     expect(readFileSync(join(externalDir, externalFiles[0]), "utf8")).toContain("api call");
   });
+
+  test("falls back to the main log instead of crashing when a topic's directory can't be created", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "mcp-debug-test-"));
+    tempDirs.push(cwd);
+    const sessionDir = join(cwd, ".mcp-debug");
+    mkdirSync(sessionDir, { recursive: true });
+    // a plain file where the "api" topic needs a directory: mkdirSync
+    // inside getTopicLog fails, and this must not crash the whole process
+    writeFileSync(join(sessionDir, "api"), "not a directory\n");
+
+    const result = await run(["run", "--", "node", join(FIXTURES, "topic-server.js")], undefined, cwd);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain('could not set up log file for topic "api"');
+    const mainFiles = readdirSync(sessionDir).filter((f) => f.endsWith(".jsonl"));
+    expect(mainFiles.length).toBe(1);
+    const mainContent = readFileSync(join(sessionDir, mainFiles[0]), "utf8");
+    expect(mainContent).toContain("no-topic message");
+    // "api"'s own directory is unusable (that's the point of this test), so
+    // it falls back to the main log alongside the untouched entries
+    expect(mainContent).toContain("api call");
+    // "chat" has no such problem, so it still gets its own separate file
+    // rather than also landing in the main log
+    expect(mainContent).not.toContain("chat message");
+    const chatFiles = readdirSync(join(sessionDir, "chat"));
+    expect(readFileSync(join(sessionDir, "chat", chatFiles[0]), "utf8")).toContain("chat message");
+  });
+
+  test("caps the number of concurrent topic logs instead of opening one per topic forever", async () => {
+    const result = await run(["run", "--", "node", join(FIXTURES, "topic-flood-server.js")]);
+    tempDirs.push(result.cwd);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("reached the limit of 50 concurrent topic logs");
+
+    const sessionDir = join(result.cwd, ".mcp-debug");
+    const topicDirs = readdirSync(sessionDir, { withFileTypes: true }).filter((e) => e.isDirectory());
+    expect(topicDirs.length).toBe(50);
+  });
 });
 
 describe("mcp-debug replay", () => {

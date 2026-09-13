@@ -75,8 +75,9 @@ mcp-debug replay .mcp-debug/session-2026-01-01-00001.jsonl
 mcp-debug replay --follow   # keep printing new lines as another run appends them
 ```
 
-Only the most recent 20 session files are kept; older ones are
-deleted automatically on the next run.
+Older session files are deleted automatically as new ones are
+created; see [Session file management](#session-file-management) to
+change how many are kept.
 
 Or get a summary instead of the full trace:
 
@@ -151,6 +152,11 @@ automatically, with the same rotation and retention rules as the
 main log. To send a topic's files somewhere else entirely, set
 `MCP_DEBUG_TOPIC_DIR_<TOPIC>` (uppercased), for example
 `MCP_DEBUG_TOPIC_DIR_API=/var/log/myserver/api`.
+
+Topics are meant for a handful of fixed categories, not one per
+request: at most 50 distinct topics get their own log file in a
+single run. Beyond that, further new topics fall back to the main
+session log instead of opening more files.
 
 ### Doctor
 

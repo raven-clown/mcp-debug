@@ -129,22 +129,36 @@ export class SessionLog {
     const bytes = Buffer.byteLength(line, "utf8");
     const cap = this.options.maxSizeBytes;
     if (cap !== undefined && this.bytesWritten > 0 && this.bytesWritten + bytes > cap) {
-      this.rotate();
+      // a logging call must never crash its caller: opening the next file
+      // (openSync, in rotate()) can throw for reasons other than the
+      // EEXIST it already retries on - disk full, permission changes
+      // mid-run, too many open files - so a failed rotation falls back to
+      // the current file instead of taking down the whole process
+      try {
+        this.rotate();
+      } catch (err) {
+        this.options.onError?.(err as Error);
+      }
     }
     this.stream.write(line);
     this.bytesWritten += bytes;
   }
 
   private rotate(): void {
-    this.stream.end();
     const today = formatDate(this.now());
     const startSeq = today !== this.date ? nextSeqForDate(this.options.dir, this.prefix, today) : this.seq + 1;
+    // open the new file before touching the old stream: if this throws,
+    // the caller's catch leaves the current (still-open, still-working)
+    // stream in place instead of having already ended it for a
+    // replacement that never arrived
     const opened = openUniqueSession(this.options.dir, this.prefix, today, startSeq);
+    const oldStream = this.stream;
     this.date = today;
     this.seq = opened.seq;
     this.path = opened.path;
     this.stream = this.wrapStream(opened.fd);
     this.bytesWritten = 0;
+    oldStream.end();
     this.options.onRotate?.(this.path);
   }
 

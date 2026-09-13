@@ -42,6 +42,7 @@ const COLOR = {
 const LEVEL_ORDER = ["debug", "info", "warn", "error"];
 const MAX_SESSIONS = 20;
 const MAX_TOPIC_NAME_LENGTH = 64;
+const MAX_CONCURRENT_TOPICS = 50;
 
 /** A topic (from debug/info/warn/error's optional topic argument in
  * index.ts) becomes a directory name and part of an env var name, so it's
@@ -320,17 +321,46 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
   });
 
   // debug/info/warn/error calls that pass a topic (index.ts) get routed to
-  // their own session file, created lazily on first use of that topic
+  // their own session file, created lazily on first use of that topic.
+  // The wrapped server fully controls the topic string, so without a cap
+  // it could open unbounded file handles and directories just by logging
+  // with a different topic each time (e.g. one per request id) - a
+  // trivial resource-exhaustion vector, whether from a bug in that server
+  // or something actively hostile. activeTopicCount tracks only topics
+  // that got their own real log (not ones already routed to the shared
+  // fallback), so it reflects actual open-file/directory usage.
   const topicLogs = new Map<string, SessionLog>();
+  let activeTopicCount = 0;
+  let warnedAtTopicCap = false;
   const getTopicLog = (topic?: string): LogWriter => {
     if (!topic) return logStream;
     const safeTopic = sanitizeTopicName(topic);
-    let log = topicLogs.get(safeTopic);
-    if (!log) {
+    const cached = topicLogs.get(safeTopic);
+    if (cached) return cached;
+
+    if (activeTopicCount >= MAX_CONCURRENT_TOPICS) {
+      if (!warnedAtTopicCap) {
+        warnedAtTopicCap = true;
+        process.stderr.write(
+          `mcp-debug: reached the limit of ${MAX_CONCURRENT_TOPICS} concurrent topic logs; further new topics go to the main session log instead\n`,
+        );
+      }
+      return logStream;
+    }
+
+    // setting up a topic's log (mkdirSync, or SessionLog opening its first
+    // file) can fail for reasons outside this process's control - a
+    // MCP_DEBUG_TOPIC_DIR_<TOPIC> pointing somewhere unwritable, or a
+    // path collision. This runs synchronously inside the child's stderr
+    // "data" handler, so an uncaught throw here would crash the whole
+    // wrapper mid-session over a logging setup failure; fall back to the
+    // main session log instead, and remember the fallback so a broken
+    // topic doesn't retry (and re-warn) on every single log line
+    try {
       const dir = topicDir(sessionDir, safeTopic);
       mkdirSync(dir, { recursive: true });
       cleanupOldSessions(dir, sessionName, flags.maxSessions - 1, flags.maxAgeDays);
-      log = new SessionLog({
+      const log = new SessionLog({
         dir,
         prefix: sessionName,
         maxSizeBytes: flags.maxSizeBytes,
@@ -340,8 +370,15 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
         },
       });
       topicLogs.set(safeTopic, log);
+      activeTopicCount++;
+      return log;
+    } catch (err) {
+      process.stderr.write(
+        `mcp-debug: could not set up log file for topic "${topic}", falling back to the main session log: ${(err as Error).message}\n`,
+      );
+      topicLogs.set(safeTopic, logStream);
+      return logStream;
     }
-    return log;
   };
 
   const child = spawn(target, targetArgs, {
@@ -410,7 +447,12 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
     process.exitCode = code ?? (signal ? 1 : 0);
     printSummary(counters);
     logStream.end();
-    for (const log of topicLogs.values()) log.end();
+    // a topic whose own log failed to set up falls back to sharing
+    // logStream (see getTopicLog above) - skip it here to avoid ending
+    // the same stream twice
+    for (const log of topicLogs.values()) {
+      if (log !== logStream) log.end();
+    }
   });
 }
 
