@@ -322,7 +322,6 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
   // file, created lazily; capped below since the wrapped server controls
   // the topic string and could otherwise open unlimited files
   const topicLogs = new Map<string, SessionLog>();
-  let activeTopicCount = 0;
   let warnedAtTopicCap = false;
   const getTopicLog = (topic?: string): LogWriter => {
     if (!topic) return logStream;
@@ -330,7 +329,11 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
     const cached = topicLogs.get(safeTopic);
     if (cached) return cached;
 
-    if (activeTopicCount >= MAX_CONCURRENT_TOPICS) {
+    // capped on every distinct topic seen, not just ones that succeeded:
+    // a topic that fails to set up (see catch below) still costs a
+    // mkdirSync and a warning, so an endless stream of distinct-but-broken
+    // topics needs the same limit as an endless stream of working ones
+    if (topicLogs.size >= MAX_CONCURRENT_TOPICS) {
       if (!warnedAtTopicCap) {
         warnedAtTopicCap = true;
         process.stderr.write(
@@ -355,7 +358,6 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
         },
       });
       topicLogs.set(safeTopic, log);
-      activeTopicCount++;
       return log;
     } catch (err) {
       process.stderr.write(

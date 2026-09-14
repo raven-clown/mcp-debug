@@ -304,6 +304,25 @@ describe("mcp-debug run", () => {
     expect(content).toContain("upper");
     expect(content).toContain("lower");
   });
+
+  test("caps topics that fail to set up too, not just ones that succeed", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "mcp-debug-test-"));
+    tempDirs.push(cwd);
+    const sessionDir = join(cwd, ".mcp-debug");
+    mkdirSync(sessionDir, { recursive: true });
+    // pre-create a blocking file for every topic the fixture will use, so
+    // each one fails to set up its own log directory
+    for (let i = 0; i < 300; i++) {
+      writeFileSync(join(sessionDir, `fail-${i}`), "blocker\n");
+    }
+
+    const result = await run(["run", "--", "node", join(FIXTURES, "topic-flood-fail-server.js")], undefined, cwd);
+
+    expect(result.code).toBe(0);
+    const warnings = (result.stderr.match(/could not set up log file for topic/g) || []).length;
+    expect(warnings).toBe(50);
+    expect(result.stderr).toContain("reached the limit of 50 concurrent topic logs");
+  });
 });
 
 describe("mcp-debug replay", () => {

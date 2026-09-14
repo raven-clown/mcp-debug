@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.2
+
+- Fixed: the 50-topic cap from 1.8.1 only counted topics that opened successfully. A flood of distinct topics that all failed to set up (e.g. a name colliding with an existing file) still got unlimited attempts and warnings. Now every distinct topic counts toward the cap, success or failure.
+
 ## 1.8.1
 
 - Fixed: a session file rotating past midnight could collide with and corrupt a file from another `mcp-debug run` process using the same session dir.
