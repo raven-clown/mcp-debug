@@ -1,4 +1,7 @@
+import type { LogFormat } from "./log-format.js";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
+export type { LogFormat };
 
 export interface LogEntry {
   time: string;
@@ -6,6 +9,7 @@ export interface LogEntry {
   label: string;
   data?: unknown;
   topic?: string;
+  format?: LogFormat;
 }
 
 // a logging call must never throw and crash the caller's server, so
@@ -29,15 +33,22 @@ function safeStringify(value: unknown): string {
 
 // stdout carries the JSON-RPC transport for stdio MCP servers, so every
 // log line here goes to stderr instead, where the mcp-debug CLI picks it up.
-function write(level: LogLevel, label: string, data?: unknown, topic?: string): void {
-  const entry: LogEntry = { time: new Date().toISOString(), level, label, data, topic };
+function write(level: LogLevel, label: string, data?: unknown, topic?: string, format?: LogFormat): void {
+  const entry: LogEntry = { time: new Date().toISOString(), level, label, data, topic, format };
   process.stderr.write(safeStringify(entry) + "\n");
 }
 
 // a topic routes this entry to its own session file under the mcp-debug
 // CLI's session directory (e.g. "api", "chat") instead of the main one -
-// see --session-dir / MCP_DEBUG_TOPIC_DIR_<TOPIC> in the README.
-export const debug = (label: string, data?: unknown, topic?: string): void => write("debug", label, data, topic);
-export const info = (label: string, data?: unknown, topic?: string): void => write("info", label, data, topic);
-export const warn = (label: string, data?: unknown, topic?: string): void => write("warn", label, data, topic);
-export const error = (label: string, data?: unknown, topic?: string): void => write("error", label, data, topic);
+// see --session-dir / MCP_DEBUG_TOPIC_DIR_<TOPIC> in the README. format
+// overrides --log-format/MCP_DEBUG_LOG_FORMAT for this entry alone, so a
+// topic destined for OpenSearch can request that shape without changing
+// how mcp-debug was launched.
+export const debug = (label: string, data?: unknown, topic?: string, format?: LogFormat): void =>
+  write("debug", label, data, topic, format);
+export const info = (label: string, data?: unknown, topic?: string, format?: LogFormat): void =>
+  write("info", label, data, topic, format);
+export const warn = (label: string, data?: unknown, topic?: string, format?: LogFormat): void =>
+  write("warn", label, data, topic, format);
+export const error = (label: string, data?: unknown, topic?: string, format?: LogFormat): void =>
+  write("error", label, data, topic, format);

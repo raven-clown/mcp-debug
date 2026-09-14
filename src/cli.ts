@@ -17,6 +17,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { LineSplitter } from "./line-splitter.js";
+import { formatLogEntry, parseLogFormat, readEntryTime, type LogFormat } from "./log-format.js";
 import { createPendingState, parseIncoming, parseOutgoing, SLOW_THRESHOLD_MS, type ProtocolMessage } from "./protocol.js";
 import { redact } from "./redact.js";
 import { extractDate, parseSessionFilename, SessionLog } from "./session-log.js";
@@ -111,7 +112,12 @@ interface RunCounters {
   latencies: number[];
 }
 
-function writeProtocolMessages(messages: ProtocolMessage[], logStream: LogWriter, counters: RunCounters): void {
+function writeProtocolMessages(
+  messages: ProtocolMessage[],
+  logStream: LogWriter,
+  counters: RunCounters,
+  logFormat: LogFormat,
+): void {
   for (const msg of messages) {
     if (msg.direction === "request") counters.requests++;
     if (msg.direction === "notification") counters.notifications++;
@@ -125,16 +131,19 @@ function writeProtocolMessages(messages: ProtocolMessage[], logStream: LogWriter
     const time = new Date().toISOString();
     process.stderr.write(`${paint(colorForProtocol(msg), `${time} [rpc]`)} ${msg.summary}\n`);
     logStream.write(
-      JSON.stringify({
-        time,
-        channel: "protocol",
-        direction: msg.direction,
-        method: msg.method,
-        id: msg.id,
-        latencyMs: msg.latencyMs,
-        isError: msg.isError,
-        text: msg.summary,
-      }) + "\n",
+      formatLogEntry(
+        {
+          time,
+          channel: "protocol",
+          direction: msg.direction,
+          method: msg.method,
+          id: msg.id,
+          latencyMs: msg.latencyMs,
+          isError: msg.isError,
+          text: msg.summary,
+        },
+        logFormat,
+      ),
     );
   }
 }
@@ -174,9 +183,11 @@ function printUsage(): void {
       "  --max-size=<size>      rotate to a new file past this size, e.g. 10MB",
       "  --session-dir=<path>   where to write session files (default .mcp-debug)",
       "  --session-name=<name>  filename prefix for session files (default session)",
+      "  --log-format=<fmt>     session file line format: jsonl (default) or opensearch",
       "",
       "Each of the above can also be set via MCP_DEBUG_MAX_SESSIONS, MCP_DEBUG_MAX_AGE,",
-      "MCP_DEBUG_MAX_SIZE, MCP_DEBUG_SESSION_DIR, MCP_DEBUG_SESSION_NAME; a flag wins over its env var.",
+      "MCP_DEBUG_MAX_SIZE, MCP_DEBUG_SESSION_DIR, MCP_DEBUG_SESSION_NAME, MCP_DEBUG_LOG_FORMAT;",
+      "a flag wins over its env var.",
       "",
       "debug/info/warn/error calls (from the mcp-stdio-debug library) that pass a topic",
       "are written to their own session file under <session-dir>/<topic>/, or wherever",
@@ -186,15 +197,25 @@ function printUsage(): void {
   );
 }
 
-function handleDebugLine(line: string, resolveLog: (topic?: string) => LogWriter, minLevel: string | undefined): void {
+function handleDebugLine(
+  line: string,
+  resolveLog: (topic?: string) => LogWriter,
+  minLevel: string | undefined,
+  logFormat: LogFormat,
+): void {
   let text = line;
   let level = "log";
   let topic: string | undefined;
+  let format = logFormat;
   try {
     const parsed = JSON.parse(line);
     if (parsed && typeof parsed === "object" && "level" in parsed) {
       level = String(parsed.level);
       if (typeof parsed.topic === "string" && parsed.topic.length > 0) topic = parsed.topic;
+      if (typeof parsed.format === "string") {
+        const requested = parseLogFormat(parsed.format);
+        if (requested !== null) format = requested;
+      }
       text = [parsed.label, parsed.data !== undefined ? JSON.stringify(redact(parsed.data)) : ""]
         .filter(Boolean)
         .join(" ");
@@ -203,7 +224,7 @@ function handleDebugLine(line: string, resolveLog: (topic?: string) => LogWriter
     // not a structured entry, print the raw line as-is
   }
   const time = new Date().toISOString();
-  resolveLog(topic).write(JSON.stringify({ time, channel: "log", level, text }) + "\n");
+  resolveLog(topic).write(formatLogEntry({ time, channel: "log", level, text }, format));
 
   if (!levelAllowed(minLevel, level)) return;
   const tag = topic ? `[${level}:${topic}]` : `[${level}]`;
@@ -220,6 +241,7 @@ interface RunFlags {
   maxSizeBytes?: number;
   sessionDir?: string;
   sessionName?: string;
+  logFormat: LogFormat;
 }
 
 /** A prefix becomes part of a filename joined onto sessionDir, so it must
@@ -237,7 +259,17 @@ function parseFlags(args: string[]): RunFlags {
     maxSessions: MAX_SESSIONS,
     sessionDir: env.MCP_DEBUG_SESSION_DIR,
     sessionName: env.MCP_DEBUG_SESSION_NAME,
+    logFormat: "jsonl",
   };
+
+  if (env.MCP_DEBUG_LOG_FORMAT !== undefined) {
+    const format = parseLogFormat(env.MCP_DEBUG_LOG_FORMAT);
+    if (format === null) {
+      process.stderr.write(`mcp-debug: MCP_DEBUG_LOG_FORMAT must be "jsonl" or "opensearch", got "${env.MCP_DEBUG_LOG_FORMAT}"\n`);
+      process.exit(1);
+    }
+    flags.logFormat = format;
+  }
 
   if (env.MCP_DEBUG_MAX_SESSIONS !== undefined) {
     const n = Number(env.MCP_DEBUG_MAX_SESSIONS);
@@ -294,6 +326,14 @@ function parseFlags(args: string[]): RunFlags {
         process.exit(1);
       }
       flags.sessionName = name;
+    } else if (a.startsWith("--log-format=")) {
+      const raw = a.slice("--log-format=".length);
+      const format = parseLogFormat(raw);
+      if (format === null) {
+        process.stderr.write(`mcp-debug: --log-format must be "jsonl" or "opensearch", got "${raw}"\n`);
+        process.exit(1);
+      }
+      flags.logFormat = format;
     }
   }
   return flags;
@@ -384,13 +424,13 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
   };
 
   const stdinSplitter = new LineSplitter((line) => {
-    writeProtocolMessages(parseOutgoing(line, pending, flags.verbose), logStream, counters);
+    writeProtocolMessages(parseOutgoing(line, pending, flags.verbose), logStream, counters, flags.logFormat);
   });
   process.stdin.on("data", (chunk: Buffer) => stdinSplitter.push(chunk));
   process.stdin.pipe(child.stdin);
 
   const stdoutSplitter = new LineSplitter((line) => {
-    writeProtocolMessages(parseIncoming(line, pending, flags.verbose), logStream, counters);
+    writeProtocolMessages(parseIncoming(line, pending, flags.verbose), logStream, counters, flags.logFormat);
   });
   // pipe (not manual .write()) so Node applies backpressure automatically
   // if the downstream consumer reads slower than the server writes
@@ -398,7 +438,7 @@ function run(target: string, targetArgs: string[], flags: RunFlags): void {
   child.stdout.on("data", (chunk: Buffer) => stdoutSplitter.push(chunk));
   child.stdout.on("close", () => stdoutSplitter.flush());
 
-  const stderrSplitter = new LineSplitter((line) => handleDebugLine(line, getTopicLog, flags.level));
+  const stderrSplitter = new LineSplitter((line) => handleDebugLine(line, getTopicLog, flags.level, flags.logFormat));
   child.stderr.on("data", (chunk: Buffer) => stderrSplitter.push(chunk));
   child.stderr.on("close", () => stderrSplitter.flush());
 
@@ -476,7 +516,6 @@ function readSessionFile(sessionPath: string): string {
 function printSessionLine(line: string): void {
   if (!line.trim()) return;
   let entry: {
-    time: string;
     channel: string;
     text: string;
     level?: string;
@@ -489,6 +528,8 @@ function printSessionLine(line: string): void {
   } catch {
     return;
   }
+  // entries can carry "time" (jsonl) or "@timestamp" (opensearch)
+  const time = readEntryTime(entry as Record<string, unknown>) ?? "";
 
   if (entry.channel === "protocol") {
     const color =
@@ -497,10 +538,10 @@ function printSessionLine(line: string): void {
         : entry.isError || (entry.latencyMs !== undefined && entry.latencyMs > SLOW_THRESHOLD_MS)
           ? COLOR.red
           : COLOR.cyan;
-    process.stdout.write(`${paint(color, `${entry.time} [rpc]`)} ${entry.text}\n`);
+    process.stdout.write(`${paint(color, `${time} [rpc]`)} ${entry.text}\n`);
   } else {
     const color = entry.level === "error" ? COLOR.red : entry.level === "warn" ? COLOR.yellow : COLOR.gray;
-    process.stdout.write(`${paint(color, `${entry.time} [${entry.level}]`)} ${entry.text}\n`);
+    process.stdout.write(`${paint(color, `${time} [${entry.level}]`)} ${entry.text}\n`);
   }
 }
 

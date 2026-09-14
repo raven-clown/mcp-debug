@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.0
+
+- Added `--log-format=opensearch` (and `MCP_DEBUG_LOG_FORMAT`) to write `"@timestamp"` instead of `"time"` in session files, so a log shipper can point straight at them for OpenSearch/Elasticsearch. Session files stay plain JSON Lines either way, so `replay`/`stats` still work. `debug`/`info`/`warn`/`error` also take an optional 4th argument to request a format for just that one call, overriding the run's default.
+
 ## 1.8.2
 
 - Fixed: the 50-topic cap from 1.8.1 only counted topics that opened successfully. A flood of distinct topics that all failed to set up (e.g. a name colliding with an existing file) still got unlimited attempts and warnings. Now every distinct topic counts toward the cap, success or failure.

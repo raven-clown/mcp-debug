@@ -164,6 +164,60 @@ describe("mcp-debug run", () => {
     expect(content).not.toContain("super-secret-token-123");
   });
 
+  test("--log-format=opensearch writes @timestamp instead of time", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const result = await run(["run", "--log-format=opensearch", "--", "node", join(FIXTURES, "echo-server.js")], request);
+    tempDirs.push(result.cwd);
+
+    const sessionDir = join(result.cwd, ".mcp-debug");
+    const file = readdirSync(sessionDir)[0];
+    const entries = readFileSync(join(sessionDir, file), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(entry.time).toBeUndefined();
+      expect(typeof entry["@timestamp"]).toBe("string");
+    }
+  });
+
+  test("replay reads a session file written with --log-format=opensearch", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const recorded = await run(["run", "--log-format=opensearch", "--", "node", join(FIXTURES, "echo-server.js")], request);
+    tempDirs.push(recorded.cwd);
+
+    const replayed = await run(["replay"], undefined, recorded.cwd);
+    expect(replayed.code).toBe(0);
+    expect(replayed.stdout).toContain("server.start");
+    expect(replayed.stdout).toContain("[rpc]");
+    expect(replayed.stdout).toContain("id=1");
+  });
+
+  test("rejects an unknown --log-format value", async () => {
+    const result = await run(["run", "--log-format=xml", "--", "node", join(FIXTURES, "echo-server.js")]);
+    tempDirs.push(result.cwd);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('--log-format must be "jsonl" or "opensearch"');
+  });
+
+  test("a per-call format argument overrides the run's default format", async () => {
+    const result = await run(["run", "--", "node", join(FIXTURES, "per-call-format-server.js")]);
+    tempDirs.push(result.cwd);
+
+    const apiDir = join(result.cwd, ".mcp-debug", "api");
+    const files = readdirSync(apiDir);
+    const entries = readFileSync(join(apiDir, files[0]), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+
+    expect(entries[0].time).toBeDefined();
+    expect(entries[0]["@timestamp"]).toBeUndefined();
+    expect(entries[1]["@timestamp"]).toBeDefined();
+    expect(entries[1].time).toBeUndefined();
+  });
+
   test("--no-color disables ANSI escape codes", async () => {
     const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
     const result = await run(["run", "--no-color", "--", "node", join(FIXTURES, "echo-server.js")], request);

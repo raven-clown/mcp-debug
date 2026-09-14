@@ -158,6 +158,24 @@ request: at most 50 distinct topics get their own log file in a
 single run. Beyond that, further new topics fall back to the main
 session log instead of opening more files.
 
+### Log format
+
+Session files are JSON Lines by default, one `{"time": ..., ...}`
+object per line. Pass `--log-format=opensearch` (or set
+`MCP_DEBUG_LOG_FORMAT=opensearch`) to write `"@timestamp"` instead of
+`"time"`, the field OpenSearch/Elasticsearch expect for time-based
+indices - the rest of each line is unchanged, so it's still plain
+JSON Lines a log shipper like Filebeat can read directly.
+
+A single `debug`/`info`/`warn`/`error` call can also request its own
+format, overriding `--log-format` for just that entry:
+
+```ts
+import { info } from "mcp-stdio-debug";
+
+info("request", { ip: "203.0.113.4" }, "api", "opensearch");
+```
+
 ### Doctor
 
 Sanity-check the environment before you spend time debugging the
