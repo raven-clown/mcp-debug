@@ -258,6 +258,40 @@ describe("mcp-debug run", () => {
     expect(readdirSync(sessionDir).length).toBe(20);
   });
 
+  test("--session-name with regex metacharacters does not crash", async () => {
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const result = await run(["run", "--session-name=server(prod)", "--", "node", join(FIXTURES, "echo-server.js")], request);
+    tempDirs.push(result.cwd);
+
+    expect(result.code).toBe(0);
+    const sessionDir = join(result.cwd, ".mcp-debug");
+    const files = readdirSync(sessionDir);
+    expect(files.some((f) => f.startsWith("server(prod)-"))).toBe(true);
+  });
+
+  test("--session-name with a dot does not treat it as a regex wildcard", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "mcp-debug-test-"));
+    tempDirs.push(cwd);
+    const sessionDir = join(cwd, ".mcp-debug");
+    mkdirSync(sessionDir, { recursive: true });
+    // if "." in the prefix were treated as a regex wildcard instead of a
+    // literal dot, this decoy would incorrectly count toward --max-sessions
+    // for the "a.b" prefix below and get swept up by cleanup
+    writeFileSync(join(sessionDir, "aXb-2026-01-01-00001.jsonl"), "decoy\n");
+
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n";
+    const result = await run(
+      ["run", "--session-name=a.b", "--max-sessions=1", "--", "node", join(FIXTURES, "echo-server.js")],
+      request,
+      cwd,
+    );
+
+    expect(result.code).toBe(0);
+    const files = readdirSync(sessionDir);
+    expect(files).toContain("aXb-2026-01-01-00001.jsonl");
+    expect(files.some((f) => f.startsWith("a.b-"))).toBe(true);
+  });
+
   test("routes topic-tagged log calls to their own file under a subfolder", async () => {
     const result = await run(["run", "--", "node", join(FIXTURES, "topic-server.js")]);
     tempDirs.push(result.cwd);

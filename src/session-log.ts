@@ -22,8 +22,15 @@ export function formatDate(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+// prefix comes from --session-name/MCP_DEBUG_SESSION_NAME, so escape it
+// before building a regex - unescaped, a name like "server(prod" throws
+// (unbalanced paren) and one like "a.*b" silently matches the wrong files
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function sessionFileRegex(prefix: string): RegExp {
-  return new RegExp(`^${prefix}-(\\d{4}-\\d{2}-\\d{2})-(\\d+)\\.jsonl$`);
+  return new RegExp(`^${escapeRegExp(prefix)}-(\\d{4}-\\d{2}-\\d{2})-(\\d+)\\.jsonl$`);
 }
 
 export interface ParsedSessionFilename {

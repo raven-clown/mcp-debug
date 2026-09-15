@@ -38,12 +38,8 @@ function write(level: LogLevel, label: string, data?: unknown, topic?: string, f
   process.stderr.write(safeStringify(entry) + "\n");
 }
 
-// a topic routes this entry to its own session file under the mcp-debug
-// CLI's session directory (e.g. "api", "chat") instead of the main one -
-// see --session-dir / MCP_DEBUG_TOPIC_DIR_<TOPIC> in the README. format
-// overrides --log-format/MCP_DEBUG_LOG_FORMAT for this entry alone, so a
-// topic destined for OpenSearch can request that shape without changing
-// how mcp-debug was launched.
+// topic routes this entry to its own session file; format overrides
+// --log-format for this entry alone
 export const debug = (label: string, data?: unknown, topic?: string, format?: LogFormat): void =>
   write("debug", label, data, topic, format);
 export const info = (label: string, data?: unknown, topic?: string, format?: LogFormat): void =>

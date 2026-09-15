@@ -208,6 +208,16 @@ describe("formatDate / extractDate / parseSessionFilename", () => {
     expect(parseSessionFilename("session-not-a-date.jsonl")).toBeNull();
   });
 
+  test("treats a prefix with regex metacharacters as a literal string", () => {
+    expect(() => parseSessionFilename("server(prod-2026-01-01-00001.jsonl", "server(prod")).not.toThrow();
+    expect(parseSessionFilename("server(prod-2026-01-01-00001.jsonl", "server(prod")).toEqual({
+      date: "2026-01-01",
+      seq: 1,
+    });
+    // "a.*b" as a prefix must not act as a wildcard and match unrelated names
+    expect(parseSessionFilename("session-2026-01-01-00001.jsonl", "a.*b")).toBeNull();
+  });
+
   test("extracts the date as epoch milliseconds at local midnight", () => {
     expect(extractDate("session-2026-01-01-00001.jsonl")).toBe(new Date(2026, 0, 1).getTime());
   });

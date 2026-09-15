@@ -1,6 +1,6 @@
 {
   "name": "mcp-stdio-debug",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "Debug logging and protocol tracing for stdio-based MCP servers",
   "type": "module",
   "bin": {

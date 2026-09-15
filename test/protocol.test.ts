@@ -134,4 +134,10 @@ describe("parseIncoming (server -> client)", () => {
     expect(pending.fromServer.has("1")).toBe(false);
     expect(pending.fromClient.has("1")).toBe(true);
   });
+
+  test("caps pending requests instead of growing forever when none get answered", () => {
+    const pending = createPendingState();
+    for (let i = 0; i < 10500; i++) parseOutgoing(req(i, "neverAnswered"), pending, false);
+    expect(pending.fromClient.size).toBe(10000);
+  });
 });

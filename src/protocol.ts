@@ -13,6 +13,9 @@ export interface ProtocolMessage {
 
 export const SLOW_THRESHOLD_MS = 500;
 
+// caps memory if a request never gets answered over a long session
+const MAX_PENDING = 10000;
+
 export interface PendingEntry {
   method: string;
   time: number;
@@ -69,6 +72,11 @@ function classifyRequestOrNotification(
       id,
       summary: withPayload(`duplicate request id=${id} (previous request still pending)`, msg, verbose),
     };
+  }
+  if (ownPending.size >= MAX_PENDING) {
+    // evict the oldest (Map preserves insertion order) instead of growing forever
+    const oldest = ownPending.keys().next().value;
+    if (oldest !== undefined) ownPending.delete(oldest);
   }
   ownPending.set(id, { method, time: Date.now() });
   return { direction: "request", method, id, summary: withPayload(`${arrow} ${method} id=${id}`, msg, verbose) };

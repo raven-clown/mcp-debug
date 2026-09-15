@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.1
+
+- Fixed: a `--session-name`/`MCP_DEBUG_SESSION_NAME` containing regex metacharacters (e.g. `server(prod`) crashed on an invalid regex, and one like `a.b` silently matched the wrong files during cleanup instead of treating the name as a literal string.
+- Fixed: a request that never got a response stayed tracked forever, so a long session against a server that drops requests grew memory without bound. Now capped at 10000 pending requests, oldest evicted first.
+
 ## 1.9.0
 
 - Added `--log-format=opensearch` (and `MCP_DEBUG_LOG_FORMAT`) to write `"@timestamp"` instead of `"time"` in session files, so a log shipper can point straight at them for OpenSearch/Elasticsearch. Session files stay plain JSON Lines either way, so `replay`/`stats` still work. `debug`/`info`/`warn`/`error` also take an optional 4th argument to request a format for just that one call, overriding the run's default.
