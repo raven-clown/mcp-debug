@@ -67,6 +67,24 @@ describe("LineSplitter", () => {
     }
   });
 
+  test("finds a newline that arrives after many chunks with none, then resumes scanning correctly", () => {
+    const lines: string[] = [];
+    const splitter = new LineSplitter((l) => lines.push(l));
+    for (let i = 0; i < 20; i++) splitter.push("nonewlineyet");
+    splitter.push("finally\nsecond\nthird");
+    splitter.flush();
+    expect(lines).toEqual(["nonewlineyet".repeat(20) + "finally", "second", "third"]);
+  });
+
+  test("stays roughly linear for a long line delivered in many small chunks", () => {
+    const chunk = "x".repeat(1000);
+    const splitter = new LineSplitter(() => {});
+    const start = performance.now();
+    for (let i = 0; i < 20000; i++) splitter.push(chunk); // 20MB, no newline
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(2000); // the old O(n^2) bug took over a minute here
+  });
+
   test("flush decodes a trailing partial multi-byte character", () => {
     const text = "emoji at the end: 🎉";
     const buf = Buffer.from(text, "utf8");

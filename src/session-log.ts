@@ -22,9 +22,7 @@ export function formatDate(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-// prefix comes from --session-name/MCP_DEBUG_SESSION_NAME, so escape it
-// before building a regex - unescaped, a name like "server(prod" throws
-// (unbalanced paren) and one like "a.*b" silently matches the wrong files
+// prefix is user-supplied, so escape it before building a regex from it
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

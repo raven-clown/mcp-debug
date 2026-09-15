@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.2
+
+- Fixed a severe performance bug: relaying a single long line (no newline) delivered across many small chunks re-scanned the whole buffered line on every chunk, making CPU cost grow quadratically with the line's size. A 40MB line took over a minute of CPU time; now it takes about 10ms. This affected stdin, stdout, and stderr relaying alike, so any large single-line message (a big base64 blob, a large tool result) could make mcp-debug itself the bottleneck.
+
 ## 1.9.1
 
 - Fixed: a `--session-name`/`MCP_DEBUG_SESSION_NAME` containing regex metacharacters (e.g. `server(prod`) crashed on an invalid regex, and one like `a.b` silently matched the wrong files during cleanup instead of treating the name as a literal string.
